@@ -1,0 +1,856 @@
+---
+title: "Untitled"
+output: html_document
+editor_options: 
+  chunk_output_type: console
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+```{r}
+library("tximport")
+library("GenomicFeatures")
+library("readr")
+library("DESeq2")
+
+library("magrittr")
+library("dplyr")
+library("ggplot2")
+library("VennDiagram")
+library("AnnotationHub")
+library("goseq")
+library("RColorBrewer")
+library("BiocParallel")
+library("Rsamtools")
+source("bcor_hESC_helperfunctions.R")
+
+ts<-format(Sys.time(), "%a_%b_%d_%Y_%H%M")
+cbPalette <- c("#E69F00","#999999","grey", "#56B4E9", "#009E73", "#F0E442", "#0072B2", "#D55E00", "#CC79A7")
+```
+
+
+
+make a txdb dataframe
+```{r}
+
+
+tx2gene<-read.delim("../salmon/bcor1a_gcbias/quant.sf",stringsAsFactors = F)
+tx2gene<-tx2gene[,1,drop=F]
+colnames(tx2gene)<-"TXNAME"
+tx2gene$GENEID<-sapply(strsplit(tx2gene$TXNAME,"\\|"),function(x) x[2]) %>% substr(.,1,15)
+head(tx2gene)
+
+samples<-list.files("../salmon") %>% grep("gcbias",.,value=T)
+files <- file.path( "../salmon", samples, "quant.sf")
+names(files) <- samples %>%  gsub("_gcbias","",.)
+all(file.exists(files))
+
+```
+
+```{r}
+txi<-tximport(files,type="salmon",tx2gene = tx2gene)
+head(txi$counts)
+sampleTable <- data.frame(sample = factor(c("BCOR","BCOR","H1","H1P","H1","H1P","KDM2B","KDM2B","RAB","RAB","WT"),
+                                          levels=c("H1P","BCOR","H1","RAB","WT","KDM2B")))
+rownames(sampleTable) <- colnames(txi$counts)
+dds <- DESeqDataSetFromTximport(txi, sampleTable, ~sample)
+dds<-estimateSizeFactors(dds)
+
+plotPCA(normTransform(dds),intgroup=c("sample"))+
+  scale_color_manual(values = c("#BFBFBF","#A11DAB",cbPalette[c(2,1,6,5)]))+theme_bw()
+  
+```
+
+
+
+```{r}
+
+load("../hgnc.rdata")
+
+
+
+gg_plotCounts("EOMES")
+```
+
+
+```{r}
+f<-fpkm(dds,robust=T)
+f["ENSG00000163508",] #EOMES
+f["ENSG00000125798",] #FOXA2
+f["ENSG00000164458",] #T
+f["ENSG00000164736",] #SOX17
+f["ENSG00000141448",] #GATA6
+
+counts<-counts(dds,normalized=T)
+counts["ENSG00000163508",] #EOMES
+counts["ENSG00000125798",] #FOXA2
+counts["ENSG00000164458",] #T
+counts["ENSG00000164736",] #SOX17
+counts["ENSG00000141448",] #GATA6
+
+
+gg_plotCounts("GSC")
+gg_plotCounts("EN2")
+gg_plotCounts("NEUROD1")
+gg_plotCounts("MIXL1")
+gg_plotCounts("EOMES")
+```
+
+Differential Expression
+```{r}
+dds<-DESeq(dds)
+alpha<-0.05
+lfc_thres<-1.0
+
+summary(res_bcorsh<-results(dds,contrast=c("sample","BCOR","H1P"),lfcThreshold=0,alpha=alpha))
+#plot(res_bcorsh$log2FoldChange,-1*log10(res_bcorsh$padj),cex=0.5,pch=16,xlim=c(-7,12),ylim=c(0,225),main="BCOR")
+#res_bcorsh$hgnc<-hgnc[match(rownames(res_bcorsh),hgnc$ensembl_gene_id),"hgnc_symbol"]
+
+summary(res_rabsh<-results(dds,contrast=c("sample","RAB","H1"),lfcThreshold=0,alpha=alpha))
+#plot(res_rabsh$log2FoldChange,-1*log10(res_rabsh$padj),cex=0.5,pch=16,xlim=c(-7,12),ylim=c(0,225),main="RAB")
+
+summary(res_kdm2b<-results(dds,contrast=c("sample","KDM2B","WT"),lfcThreshold=0,alpha=alpha))
+#plot(res_kdm2b$log2FoldChange,-1*log10(res_kdm2b$padj),cex=0.5,pch=16,xlim=c(-7,12),ylim=c(0,225),main="KDM2B")
+
+```
+
+#Venn Diagram
+```{r}
+summary(degs_bcor<-rownames(subset(res_bcorsh,padj<alpha & abs(log2FoldChange) > lfc_thres)))
+summary(degs_rab<-rownames(subset(res_rabsh,padj<alpha & abs(log2FoldChange) > lfc_thres)))
+summary(degs_kdm2b<-rownames(subset(res_kdm2b,padj<alpha & abs(log2FoldChange) > lfc_thres)))
+
+overrideTriple<-T
+grid.newpage();
+vennplot <- draw.triple.venn(length(degs_bcor),
+                             length(degs_rab),
+                             length(degs_kdm2b),
+                             sum(degs_bcor %in% degs_rab), #n12
+                             sum(degs_rab %in% degs_kdm2b), #n23
+                             sum(degs_bcor %in% degs_kdm2b), #n13
+                             sum(degs_bcor[degs_bcor %in% degs_rab] %in% degs_kdm2b), #n123
+                             category=c("BCOR KD","RAB KD","KDM2B KO"),
+                             cat.col=c("#A11DAB",cbPalette[1],cbPalette[5]),
+                             fill=c("#A11DAB",cbPalette[1],cbPalette[5]),
+                             scaled=T,euler.d=T)
+
+
+```
+
+# Classify TSS's
+```{r}
+txdb<-makeTxDbFromGFF("../gencode.v27.basic.annotation.gff3",format = "gff3")
+tss_prom<-trim(promoters(txdb,upstream=1000,downstream=1000))
+
+tss_prom$tx_name<-substr(tss_prom$tx_name,1,15)
+names(tss_prom)<-tss_prom$tx_name
+sum(duplicated(names(tss_prom)))
+summary(idx<-match(substr(names(tss_prom),1,15),hgnc$ensembl_transcript_id))
+tss_prom$hgnc<-hgnc[idx,"hgnc_symbol"]
+tss_prom$ensembl<-hgnc[idx,"ensembl_gene_id"]
+mcols(tss_prom)<-mcols(tss_prom)[,c("hgnc","ensembl")]
+
+save(tss_prom,file="tss_prom.rdata")
+```
+
+```{r count_tss,eval=F}
+load("tss_prom.rdata")
+register(MulticoreParam(workers=16))
+
+fls<- wildtype_fileset@filename %>% grep("ENCFF",.,invert=TRUE, value = TRUE)
+fls<-c(fls,"H1_egs_input_P36_Index6_S10.fastq.bam","H1_k2bko_input_P36_Index8_S12.fastq.bam")
+bamlst<-BamFileList(fls,yieldSize = 1e7)
+seqlevelsStyle(tss_prom)<-"NCBI"
+
+#inter.feature=FALSE will allow reads to count for multiple features
+system.time(tss_counts_ncbi<-summarizeOverlaps(tss_prom,bamlst,mode = "Union",ignore.strand = TRUE,inter.feature=FALSE))
+apply(assays(tss_counts_ncbi)$counts,2,sum)
+system.time(tsswide_counts_ncbi<-summarizeOverlaps(tss_prom+9000,bamlst,mode = "Union",ignore.strand = TRUE,inter.feature=FALSE))
+apply(assays(tsswide_counts_ncbi)$counts,2,sum)
+
+fls<- wildtype_fileset@filename %>% grep("ENCFF",.,invert=FALSE, value = TRUE)
+bamlst<-BamFileList(fls,yieldSize = 1e7)
+seqlevelsStyle(tss_prom)<-"UCSC"
+system.time(tss_counts_ucsc<-summarizeOverlaps(tss_prom,bamlst,mode = "Union",ignore.strand = TRUE,inter.feature=FALSE))
+apply(assays(tss_counts_ucsc)$counts,2,sum)
+system.time(tsswide_counts_ucsc<-summarizeOverlaps(tss_prom+9000,bamlst,mode = "Union",ignore.strand = TRUE,inter.feature=FALSE))
+apply(assays(tsswide_counts_ucsc)$counts,2,sum)
+
+save(tss_counts_ncbi,tss_counts_ucsc,tsswide_counts_ncbi,tsswide_counts_ucsc,file="tss_counts.rdata")
+```
+
+Classify TSS_counts
+```{r}
+load("tss_counts.rdata")
+load("tss_prom.rdata")
+
+tss_counts<-cbind(assays(tss_counts_ncbi)$counts,assays(tss_counts_ucsc)$counts)
+colnames(tss_counts)<-c("BCOR","KDM2B","RNF2","PCGF1","RYBP","CGI","H2AUb","H3K36me2","Ser5p","Ser7p","INPUT_EGS","INPUT","SUZ12","H3K27me3","CBX2","DNAse1","H3K4me3","H3K79me2")
+tss_counts<-tss_counts[,c("INPUT_EGS","INPUT","BCOR","KDM2B","RNF2","PCGF1","RYBP","CGI","H2AUb","H3K36me2","SUZ12","H3K27me3","CBX2","DNAse1","H3K4me3","H3K79me2","Ser5p","Ser7p")]
+
+tsswide_counts<-cbind(assays(tsswide_counts_ncbi)$counts,assays(tsswide_counts_ucsc)$counts)
+colnames(tsswide_counts)<-c("BCOR","KDM2B","RNF2","PCGF1","RYBP","CGI","H2AUb","H3K36me2","Ser5p","Ser7p","INPUT_EGS","INPUT","SUZ12","H3K27me3","CBX2","DNAse1","H3K4me3","H3K79me2")
+tsswide_counts<-tsswide_counts[,c("INPUT_EGS","INPUT","BCOR","KDM2B","RNF2","PCGF1","RYBP","CGI","H2AUb","H3K36me2","SUZ12","H3K27me3","CBX2","DNAse1","H3K4me3","H3K79me2","Ser5p","Ser7p")]
+
+round(data.frame(narrow=colSums(tss_counts),wide=colSums(tsswide_counts))/1e6,2)
+
+colnames(tsswide_counts)<-paste0(colnames(tsswide_counts),"_wide")
+
+tss_counts<-as.data.frame(cbind(tss_counts,tsswide_counts))
+
+#convert to GRanges object
+all.equal(names(tss_prom),rownames(tss_counts))
+tss_prom$tx_name<-names(tss_prom)
+tss_prom$wls<-wls(tss_prom)
+names(tss_prom)<-1:length(tss_prom)
+rownames(tss_counts)<-1:nrow(tss_counts)
+all.equal(names(tss_prom),rownames(tss_counts))
+mcols(tss_prom)<-cbind(mcols(tss_prom),tss_counts)
+
+#filter
+length(tss_prom<-tss_prom[!duplicated(tss_prom$wls)]) #remove redundant regions
+
+tss_prom<-tss_prom[with(tss_prom,order(-Ser5p))]
+length(tss_prom<-tss_prom[!duplicated(tss_prom$ensembl)] )  #select 1 tx for each gene with highest Ser5p
+
+length(tss_prom<-tss_prom[tss_prom$INPUT_EGS_wide < 400 & tss_prom$INPUT_wide < 400] )  #remove aberrant inputs
+
+#summary(idx<-match(tss_prom$tx_name,hgnc$ensembl_transcript_id))
+#tss_prom$biotype<-hgnc[idx,"transcript_biotype"]
+#x<-data.frame(table(tss_prom$biotype))
+#x<-x[with(x,order(-Freq)),]
+#rownames(x)<-1:nrow(x)
+#length(tss_prom)
+
+#colnames(mcols(tss_prom))
+x<-mcols(tss_prom)[,5:22]
+kx<-kmeans(x,3)
+tss_prom$class<-kx$cluster
+table(tss_prom$class)
+#boxplot(tss_prom$BCOR~tss_prom$class,main="BCOR +/- 1kb")
+#boxplot(tss_prom$BCOR_wide~tss_prom$class,main="BCOR +/- 10kb")
+#boxplot(tss_prom$H3K27me3~tss_prom$class,main="H3K27me3 +/- 1kb")
+#boxplot(tss_prom$H3K4me3~tss_prom$class,main="H3K4me3 +/- 1kb")
+#boxplot(tss_prom$Ser7p~tss_prom$class,main="Ser7p +/- 1kb")
+#boxplot(tss_prom$Ser5p~tss_prom$class,main="Ser5p +/- 1kb")
+
+a<-c(mean(tss_prom[tss_prom$class==1]$BCOR),mean(tss_prom[tss_prom$class==2]$BCOR),mean(tss_prom[tss_prom$class==3]$BCOR))
+
+length(tss_strong<-tss_prom[tss_prom$class==which.max(a)])
+tss_strong<-tss_strong[with(tss_strong,order(-BCOR))]
+tss_strong$class<-"strong"
+length(tss_weak<-tss_prom[tss_prom$class==which(a==median(a))])
+tss_weak<-tss_weak[with(tss_weak,order(-BCOR))]
+tss_weak$class<-"weak"
+length(tss_nobinding<-tss_prom[tss_prom$class==which.min(a)])
+tss_nobinding<-tss_nobinding[with(tss_nobinding,order(-BCOR))]
+tss_nobinding$class<-"nobinding"
+length(tss_classified<-c(tss_strong,tss_weak,tss_nobinding))
+barplot(tss_classified$Ser5p_wide)
+barplot(tss_classified$H3K4me3)
+table(tss_classified$class)
+
+seqlevelsStyle(tss_classified)<-"NCBI"
+#remove regions that fall off the edge of chromosomes
+x<-tss_classified+50000
+seqinfo(x)<-seqinfo(BSgenome.Hsapiens.NCBI.GRCh38)
+sum(width(trim(x))!=width(x))
+length(tss_classified<-tss_classified[width(trim(x))==width(x)])
+
+sum(duplicated(tss_classified$wls))
+
+save(tss_classified,file="tss_classified_081817.rdata")
+```
+
+Assign FPKM values to TSS classification
+```{r}
+load("../tss_classified_081817.rdata")
+x<-mcols(tss_classified)
+res_bcorsh$class<-x[match(rownames(res_bcorsh),x$ensembl),"class"]
+res_rabsh$class<-x[match(rownames(res_rabsh),x$ensembl),"class"]
+res_kdm2b$class<-x[match(rownames(res_kdm2b),x$ensembl),"class"]
+
+res_bcorsh$wt_fpkm<-f[match(rownames(res_bcorsh),rownames(f)),"wt"]
+res_rabsh$wt_fpkm<-f[match(rownames(res_rabsh),rownames(f)),"wt"]
+res_kdm2b$wt_fpkm<-f[match(rownames(res_kdm2b),rownames(f)),"wt"]
+
+df <- rbind( data.frame(res_bcorsh[,c("baseMean","log2FoldChange","padj","class","wt_fpkm")],factor="BCOR"),
+             data.frame(res_rabsh[,c("baseMean","log2FoldChange","padj","class","wt_fpkm")],factor="RAB"),
+             data.frame(res_kdm2b[,c("baseMean","log2FoldChange","padj","class","wt_fpkm")],factor="KDM2B"))
+
+table(df$class,useNA="ifany")
+df %>% 
+  dplyr::filter(!(is.na(log2FoldChange) | is.na(padj) | is.na(class))) %>% 
+  mutate(plog= -1*log10(padj)) %>% 
+  mutate(class= factor(class,levels=c("strong","weak","nobinding"))) %>% 
+  mutate(factor= factor(factor,levels=c("BCOR","RAB","KDM2B"))) %>% 
+  mutate(log2fpkm=log2(wt_fpkm+1)) %>% 
+  ggplot(aes(x=log2FoldChange,y=plog,color=log2fpkm)) + geom_point() + 
+  facet_grid( class ~ factor) +theme_bw() +scale_color_gradientn(colors=rainbow(10),name="Log2(WT FPKM + 1)")
+
+```
+
+
+#combine for export to CSV 
+```{r}
+colnames(res_bcorsh)<-paste0(colnames(res_bcorsh),"_bcorsh")
+colnames(res_rabsh)<-paste0(colnames(res_rabsh),"_rabsh")
+colnames(res_kdm2b)<-paste0(colnames(res_kdm2b),"_k2bKO")
+
+all.equal(rownames(res_kdm2b),rownames(res_bcorsh))
+all.equal(rownames(res_kdm2b),rownames(res_rabsh))
+
+res<-cbind(res_bcorsh,res_rabsh,res_kdm2b)
+summary(idx<-match(rownames(res),hgnc$ensembl_gene_id))
+res$hgnc<-hgnc[idx,"hgnc_symbol"]
+
+summary(idx<-match(rownames(res),x$ensembl))
+res$class<-x[idx,"class"]
+res<-res[,c(19,20,1:6,8:12,14:18)]
+head(res)
+write.csv(res,file="deseq2_moderated_log2FC_data_090517.csv",quote=F,row.names = T)
+
+#f_sh<-fpkm(dds_shRNA,robust = TRUE)
+#par(mfrow=c(1,1))
+```
+
+Figure 2f
+```{r}
+#f_sh["ENSG00000163508",]
+
+
+summary(idx<-match(tss_classified$ensembl,rownames(f)))
+tss_classified$H1P_fpkm<-(f[idx,"h1p1a"]+f[idx,"h1p2a"])/2
+tss_classified$BCOR_fpkm<-(f[idx,"bcor1a"]+f[idx,"bcor2a"])/2
+
+tss_classified$H1_H1P_fpkm<-(f[idx,"H1P1"]+f[idx,"H1P2"])/2
+tss_classified$H1_RAB_fpkm<-(f[idx,"RAB1"]+f[idx,"RAB2"])/2
+
+tss_classified$WT_fpkm<-f[idx,"wt"]
+tss_classified$KDM2B_fpkm<-(f[idx,"kdm2b1"]+f[idx,"kdm2b2"])/2
+
+write.csv(mcols(tss_classified),file="chip_enrichment_and_fpkm_data_090517.csv",quote=F,row.names = F)
+
+tx2gene$symbol<-sapply(strsplit(tx2gene[,"TXNAME"],"\\|"), function(x) x[6])
+tx2gene$biotype<-factor(sapply(strsplit(tx2gene[,"TXNAME"],"\\|"), function(x) x[8]))
+tx2gene$biotype<-factor(tx2gene$biotype,levels(tx2gene$biotype)[c(24,12,14,22,1:11,13,15:21,23,25:49)])
+levels(tx2gene$biotype)
+
+rev(sort(table(as.character(tx2gene$biotype))))
+
+tx2gene<-tx2gene[with(tx2gene,order(biotype)),]
+
+
+dim(f2<-as.data.frame(round(f,3)))
+dim(f2<-f2[rowSums(f2)> 0.0,])
+summary(idx<-match(rownames(f2),tx2gene$GENEID))
+f2$symbol<-tx2gene[idx,"symbol"]
+f2$biotype<-as.character(tx2gene[idx,"biotype"])
+f2<-f2[,c("symbol","biotype","h1p1a","h1p2a","bcor1a","bcor2a","H1P1","H1P2","RAB1","RAB2","wt","kdm2b1","kdm2b2")]
+
+genes_of_interest<-c("EOMES","T","FOXA2","GATA6","GSX2","SOX1","VAX2","GSC","NEUROD1","EN2","SOX17","MIXL1","YAF2","RYBP","CBX2","BCOR","BCORL1")
+f2[f2$symbol %in% genes_of_interest,]
+
+write.csv(f2,paste0("fpkm_table_per_sample_",ts,".csv"),quote=F)
+R.utils::gzip(paste0("fpkm_table_per_sample_",ts,".csv"))
+
+#from summarized data
+(idx<-match(genes_of_interest,tss_classified$hgnc))
+temp<-data.frame(symbol=genes_of_interest,round(as.data.frame(mcols(tss_classified)[idx,grep("fpkm",colnames(mcols(tss_classified)))]),3))
+temp
+
+
+g1<-mcols(tss_classified) %>% as.data.frame() %>% 
+  dplyr::select(H1P_fpkm,BCOR_fpkm,class) %>% 
+  dplyr::filter(!(is.na(H1P_fpkm) | is.na(BCOR_fpkm) | is.na(class))) %>% 
+  mutate(H1P= log2(H1P_fpkm+1)) %>% 
+  mutate(BCOR= log2(BCOR_fpkm+1)) %>% 
+  dplyr::select(H1P,BCOR,class) %>% 
+  tidyr::gather(sh,fpkm,na.rm=T,factor_key=T,-class) %>% 
+  mutate(class= factor(class,levels=c("strong","weak","nobinding"))) %>%  
+  ggplot(aes(x=sh,y=fpkm,fill=sh)) +geom_boxplot() + facet_grid(. ~ class) +
+  scale_fill_manual(values=c("#A2AED9","#EF3A38"),name="shRNA",labels=c("Control KD","BCOR KD"))+
+  theme_bw()+ ylab("Expression - Log2( FPKM + 1)") +xlab("") +
+  theme(strip.background = element_blank(), 
+        panel.grid.minor.y = element_blank(),
+        panel.grid.major.y = element_blank(),
+        panel.grid.minor.x = element_blank(),
+        panel.grid.major.x = element_blank(),
+        axis.title.x=element_blank(),
+        axis.text.x=element_blank(),
+        axis.ticks.x=element_blank())
+ggsave("test.svg",device=svglite::svglite,height=6,width=5)
+
+read_pptx() %>% 
+  add_slide(layout = "Title and Content", master = "Office Theme") %>% 
+  ph_with_vg(code = print(g1), type = "body") %>% 
+  print(target = "Figure_2F.pptx") %>% 
+  invisible()
+
+
+x1<-mcols(tss_classified) %>% as.data.frame() %>% 
+  dplyr::filter(class=="nobinding") %>% 
+  dplyr::select(H1P_fpkm,BCOR_fpkm) %>% 
+  mutate(H1P= log2(H1P_fpkm+1)) %>% 
+  mutate(BCOR= log2(BCOR_fpkm+1)) 
+
+t.test(x1$H1P,x1$BCOR,paired=T)$p.value
+
+wilcox.test(x1$H1P_fpkm,x1$BCOR_fpkm,paired=T)$p.value
+
+
+
+
+%>% 
+  mutate(H1P= log2(H1P_fpkm+1)) %>% 
+  mutate(BCOR= log2(BCOR_fpkm+1)) %>% 
+  dplyr::select(H1P,BCOR) 
+
+wilcox.test(x1$H1P,x1$BCOR,paired=T)
+
+
+mcols(tss_classified) %>% as.data.frame() %>% 
+  dplyr::select(class:KDM2B_fpkm) %>% 
+  dplyr::filter(!(is.na(H1P_fpkm) | is.na(BCOR_fpkm) | is.na(class))) %>% 
+ # mutate(H1P= log2(H1P_fpkm+1)) %>% 
+ # mutate(BCOR= log2(BCOR_fpkm+1)) %>% 
+#  dplyr::select(H1P,BCOR,class) %>% 
+  tidyr::gather(sh,fpkm,na.rm=T,factor_key=T,-class) %>% 
+  mutate(class= factor(class,levels=c("strong","weak","nobinding"))) %>%  
+ mutate(fpkm=log2(fpkm + 1)) %>% 
+   ggplot(aes(x=sh,y=fpkm,fill=sh)) +geom_boxplot() + facet_grid(. ~ class) +
+  scale_fill_manual(values = c("#BFBFBF","#A11DAB",cbPalette[c(2,1,6,5)]),name="shRNA")+
+  theme_bw()+ ylab("Expression - Log2( FPKM + 1)") +xlab("") +
+  theme(strip.background = element_blank(), 
+        panel.grid.minor.y = element_blank(),
+        panel.grid.major.y = element_blank(),
+        panel.grid.minor.x = element_blank(),
+        panel.grid.major.x = element_blank(),
+        axis.title.x=element_blank(),
+        axis.text.x=element_blank(),
+        axis.ticks.x=element_blank())
+
+write.csv(mcols(tss_classified),file=paste0("chip_enrichment_and_fpkm_data_",ts,".csv",quote=F,row.names = F)
+```
+
+```{r}
+
+idx<-match(tss_classified$ensembl,rownames(f))
+
+f[idx,c(4,6,1,2)] %>% as.data.frame() 
+
+g1<-mcols(tss_classified) %>% as.data.frame() %>% 
+  dplyr::filter(class=="weak" | class=="strong") %>% 
+  dplyr::select(H1P_fpkm,BCOR_fpkm,class) %>% 
+  dplyr::mutate(pos=1:n() ) %>% 
+  dplyr::filter(!(is.na(BCOR_fpkm) | is.na(H1P_fpkm)) ) %>% 
+  tidyr::gather(sample,fpkm,-class:-pos) %>%
+  dplyr::mutate(fpkm=log2(fpkm+1)) %>% 
+  ggplot(aes(x=pos,y=fpkm,group=sample,colour=sample)) + 
+ # stat_smooth(subset(class="strong"), method = "auto") +
+  stat_smooth(method="auto") + 
+ # geom_point(size=0.2)+
+  theme_bw() + coord_flip() + scale_colour_manual(values=c("blue","red")) + 
+  xlim(c(16894,1)) + ylab("Log2(FPKM+1)") + 
+  xlab("Position in Carpet Plot from Top to Bottom")
+
+g2<-mcols(tss_classified) %>% as.data.frame() %>% 
+  dplyr::filter(class=="weak" | class=="strong") %>% 
+  dplyr::select(H1_H1P_fpkm,H1_RAB_fpkm,class) %>% 
+  dplyr::mutate(pos=1:n() ) %>% 
+  dplyr::filter(!(is.na(H1_H1P_fpkm) | is.na(H1_RAB_fpkm)) ) %>% 
+  tidyr::gather(sample,fpkm,-class:-pos) %>%
+  dplyr::mutate(fpkm=log2(fpkm+1)) %>% 
+  ggplot(aes(x=pos,y=fpkm,group=sample,colour=sample)) + 
+ # stat_smooth(subset(class="strong"), method = "auto") +
+  stat_smooth(method="auto") + 
+ # geom_point(size=0.2)+
+  theme_bw() + coord_flip() + scale_colour_manual(values=c("blue","red")) + 
+  xlim(c(16894,1)) + ylab("Log2(FPKM+1)") + 
+  xlab("Position in Carpet Plot from Top to Bottom")
+
+g3<-mcols(tss_classified) %>% as.data.frame() %>% 
+  dplyr::filter(class=="weak" | class=="strong") %>% 
+  dplyr::select(WT_fpkm,KDM2B_fpkm,class) %>% 
+  dplyr::mutate(pos=1:n() ) %>% 
+  dplyr::filter(!(is.na(WT_fpkm) | is.na(KDM2B_fpkm)) ) %>% 
+  tidyr::gather(sample,fpkm,-class:-pos) %>%
+  dplyr::mutate(fpkm=log2(fpkm+1)) %>% 
+  ggplot(aes(x=pos,y=fpkm,group=sample,colour=sample)) + 
+ # stat_smooth(subset(class="strong"), method = "auto") +
+  stat_smooth(method="auto") + 
+ # geom_point(size=0.2)+
+  theme_bw() + coord_flip() + scale_colour_manual(values=c("blue","red")) + 
+  xlim(c(16894,1)) + ylab("Log2(FPKM+1)") + 
+  xlab("Position in Carpet Plot from Top to Bottom")
+
+```
+
+
+Download Files for GO Analysis
+```{r}
+#download.file("http://geneontology.org/gene-associations/goa_human.gaf.gz",destfile = "goa_human.gaf.gz")
+#R.utils::gunzip("goa_human.gaf.gz")
+#download.file("http://purl.obolibrary.org/obo/go.obo",destfile = "go.obo")
+
+goa_human<-readr::read_delim("goa_human.gaf",delim="\t",comment="!",col_names=c("DB","DB Object ID","Symbol","Qualifier","GO ID","DB:eEference","Evidence Code",
+                    "WithorFrom","Aspect","DB Object Name","DB Object Syn","DB Object Type","Taxon","Date","Assigned By",
+                    "Annotation Extension","Gene Product Form ID"))
+table(goa_human$`Evidence Code`)
+
+
+t1<-readLines("go.obo",n=-1L)
+go_terms<-list()
+
+
+for (i in seq_along(1:length(t1))) {
+    if (t1[i]=="[Term]") {
+      gt<-substr(t1[i+1],5,14)
+      name<-gsub("name: ","",t1[i+2])
+      if (t1[i+3]=="namespace: biological_process") { 
+        #print (paste0(gt,":  ",name)) 
+        go_terms[[gt]]<-name
+      }
+      }
+  }
+go_terms<-unlist(go_terms)
+length(go_terms)
+
+#subset associations to BP
+sum(goa_human$`GO ID` %in% names(go_terms))
+dim(goa_human<-goa_human[goa_human$`GO ID` %in% names(go_terms),])
+
+#add ensemblid for each row
+ah <- AnnotationHub()
+query(ah, "EnsDb")
+ens88<-query(ah, pattern = c("Homo Sapiens", "EnsDb", 88))[[1]]
+
+temp<-AnnotationDbi::select(ens88,keys=unique(goa_human$`DB Object ID`),keytype="UNIPROTID",columns=c("GENEID","SYMBOL"))
+summary(idx<-match(goa_human$`DB Object ID`,temp$UNIPROTID))
+goa_human$ensembl<-temp[idx,"GENEID"]
+goa_human$symbol<-temp[idx,"SYMBOL"]
+
+#subset GO terms to genes expressed in tss_classified
+length(expressed_genes<-tss_classified$ensembl)
+
+dim(goa_human<-goa_human[goa_human$ensembl %in% expressed_genes,])
+
+#reduce to term and gene
+dim(goa_human<-goa_human[!is.na(goa_human$ensembl),c("ensembl","GO ID")])
+
+#remove duplicated entries (possibly from multiple lines of evidence)
+dim(goa_human<-goa_human[!duplicated(goa_human),])
+
+#shorted expressed genes to just those that we have ontology information for.
+length(expressed_genes<-expressed_genes[expressed_genes %in% unique(goa_human$ensembl)])
+
+#make a list
+goa_human.list<-split(goa_human$`GO ID`,goa_human$ensembl)
+
+#test
+go_terms[goa_human.list[[temp[grep("FOXA2",temp$SYMBOL),"GENEID"]]]]
+go_terms[goa_human.list[[temp[grep("^BCOR$",temp$SYMBOL),"GENEID"]]]]
+go_terms[goa_human.list[[temp[grep("^DMRT1$",temp$SYMBOL),"GENEID"]]]]
+
+goa_human[grep("GO:0050911",goa_human$`GO ID`),]$ensembl
+AnnotationDbi::select(ens88,keys=unique(goa_human[grep("GO:0050911",goa_human$`GO ID`),]$ensembl),keytype="GENEID",columns=c("SYMBOL"))
+
+#Get bias data
+bd<-sum(width(reduce(exonsBy(ens88,by="gene"))))
+bd<-bd[expressed_genes]
+bd[temp[grep("^BCOR$",temp$SYMBOL),"GENEID"]]
+```
+
+```{r}
+#run goseq on 3 categories
+sum(degs<-as.numeric(expressed_genes %in% tss_classified$ensembl[tss_classified$class=="strong"]))
+names(degs)<-expressed_genes
+table(degs)
+
+pwf.strong<-nullp(degs,bias.data=bd)
+
+#weak
+sum(degs<-as.numeric(expressed_genes %in% tss_classified$ensembl[tss_classified$class=="weak"]))
+names(degs)<-expressed_genes
+table(degs)
+
+pwf.weak<-nullp(degs,bias.data=bd)
+
+#nobinding
+sum(degs<-as.numeric(expressed_genes %in% tss_classified$ensembl[tss_classified$class=="nobinding"]))
+names(degs)<-expressed_genes
+table(degs)
+pwf.nobinding<-nullp(degs,bias.data=bd)
+
+GO.hyper.strong.goa<-goseq(pwf.strong,gene2cat=goa_human.list,method = "Hypergeometric")
+GO.hyper.weak.goa<-goseq(pwf.weak,gene2cat=goa_human.list,method = "Hypergeometric")
+GO.hyper.nobinding.goa<-goseq(pwf.nobinding,gene2cat=goa_human.list,method = "Hypergeometric")
+
+
+write.csv(GO.hyper.strong.goa[GO.hyper.strong.goa$over_represented_pvalue < 0.05,],file="GO_hyper_strong_goa.csv",quote=F,row.names = F)
+write.csv(GO.hyper.weak.goa[GO.hyper.weak.goa$over_represented_pvalue < 0.05,],file="GO_hyper_weak_goa.csv",quote=F,row.names = F)
+write.csv(GO.hyper.nobinding.goa[GO.hyper.nobinding.goa$over_represented_pvalue < 0.05,],file="GO_hyper_nobinding_goa.csv",quote=F,row.names = F)
+```
+
+```{r}
+revigo.strong<-read.csv("revigo_strong_goa.csv",stringsAsFactors = F,header=T)
+revigo.strong$class<-"strong"
+revigo.weak<-read.csv("revigo_weak_goa.csv",stringsAsFactors = F,header=T)
+revigo.weak$class<-"weak"
+revigo.nobinding<-read.csv("revigo_nobinding_goa.csv",stringsAsFactors = F,header=T)
+revigo.nobinding$class<-"nobinding"
+
+go_plot<-rbind(revigo.strong,revigo.weak,revigo.nobinding) %>%  
+  dplyr::select(description,log10.p.value,class) %>% 
+  dplyr::mutate(log10.p.value = -1* log10.p.value) %>% 
+  dplyr::filter(log10.p.value > 15) %>% 
+  dplyr::mutate(class=factor(class,levels=rev(c("strong","weak","nobinding")))) %>% 
+  dplyr::arrange(class,log10.p.value) %>% 
+  dplyr::mutate(description=factor(description,levels=description)) %>% 
+ggplot(aes(x=description,y=log10.p.value,fill=class)) +
+  geom_bar(stat="identity") +
+  scale_fill_manual(values=rev(c("#993366","#D37BA7","#BFBFBF")),guide=FALSE) +
+  coord_flip() + ylab("-Log10( p-value)") +
+  theme_bw() +
+  theme(strip.background = element_blank(), 
+        panel.grid.minor.y = element_blank(),
+        panel.grid.major.y = element_blank(),
+        panel.grid.major.x = element_blank())
+
+ggsave("go_terms_090517.png",plot=go_plot,dpi=300,width=6,height=6)
+
+```
+
+filesets
+```{r}
+bcor_fileset<-new("fileset", filename=c( "../H1_wt_BCOR_P36_Index15_S14.fastq.bam","../ubH2A_H1_081816_GRCh38.bam"),
+           labels=c("BCOR","UbH2A"))
+(bcor_fileset<-countFileset(bcor_fileset))
+
+pol2_fileset<-new("fileset", filename=c( "../estaras_Ser5P_RNAPII_untreated_SRR1745499.R1_trimmed.fastq.bam","../estaras_Ser7P_RNAPII_untreated_SRR1745503.R1_trimmed.fastq.bam"),
+           labels=c("Ser5P","Ser7p"))
+(pol2_fileset<-countFileset(pol2_fileset))
+
+cbx2rybp_fileset<-new("fileset", filename=c( "../H1_CBX2_broad_ENCFF614JXQ.bam","../H1_egs_RYBP_P36_Index13_S8.fastq.bam"),
+           labels=c("CBX2","RYBP"))
+(cbx2rybp_fileset<-countFileset(cbx2rybp_fileset))
+
+dnase_fileset<-new("fileset", filename=c( "../DNAse1_H1_UW_ENCFF674MNA.bam"),
+           labels=c("DNASE1"))
+(dnase_fileset<-countFileset(dnase_fileset))
+
+cgi_fileset<-new("fileset", filename=c( "../cgi_hg38_canon_ncbi.bam"),
+           labels=c("CGI"))
+(cgi_fileset<-countFileset(cgi_fileset))
+
+prc1_fileset<-new("fileset",filename=c("../H1_egs_KDM2B_P36_Index11_S6.fastq.bam",
+                                 "../H1_wt_RNF2_P36_Index16_S15.fastq.bam",
+                                 "../H1_egs_PCGF1_P36_Index12_S7.fastq.bam"),
+                  labels=c("KDM2B","RNF2","PCGF1"))
+prc1_fileset<-countFileset(prc1_fileset)
+
+rna_fileset<-new("fileset", filename=c( "../H1P1A_CGATGT.bam","../BCOR1A_TGACCA.bam"),
+           labels=c("H1P","shBCOR"))
+(rna_fileset<-countFileset(rna_fileset))
+
+input_fileset<-new("fileset",filename=c("../H1_k2bko_BCOR_P36_Index17_S16.fastq.bam",
+                                        "../H1_k2bko_input_P36_Index8_S12.fastq.bam"),
+                  labels=c("BCOR_k2bko","INPUT_k2bko"))
+input_fileset<-countFileset(input_fileset)
+
+(ser7p_fileset<-countFileset(new("fileset",filename=c("../estaras_Ser7P_RNAPII_untreated_SRR1745503.R1_trimmed.fastq.bam",
+                                        "../H1_k2bko_input_P36_Index8_S12.fastq.bam"),
+                  labels=c("CHIP","INPUT"))))
+
+
+
+histones_fileset<-new("fileset", filename=c( "../H1_H3K4me3_ENCFF571AXH.bam","../H1_H3K27me3_ENCFF171RVK.bam",
+                                             "../H3K36me2_ChIP_zheng_GCCAAT_bothruns.R1_trimmed.fastq.bam",
+                                             "../H1_h3k79me2_broad_ENCFF965LBC.bam",
+                                             "../ubH2A_H1_081816_GRCh38.bam"),
+           labels=c("H3K4me3","H3K27me3","H3K36me2","H3K79me2","H2AK119ub"))
+(histones_fileset<-countFileset(histones_fileset))
+```
+
+
+# Summarize counts for the BCOR ChIP-seqs in K2B KO and RNF2-R for stacked histogram plots
+```{r}
+load("../filesets.rdata")
+load("tss_classified_081817.rdata")
+register(MulticoreParam(workers=8))
+
+length(bound<-tss_classified[tss_classified$class!="nobinding"])
+seqlevelsStyle(bound)<-"NCBI"
+bamlst<-BamFileList(rnf2r_fileset@filename,yieldSize = 1e7)
+
+#inter.feature=FALSE will allow reads to count for multiple features
+system.time(rnf2r_counts<-summarizeOverlaps(bound,bamlst,mode = "Union",ignore.strand = TRUE,inter.feature=FALSE))
+apply(assays(rnf2r_counts)$counts,2,sum)
+rnf2r_counts<-as.data.frame(assays(rnf2r_counts)$counts)
+stopifnot(all.equal(names(bound),rownames(rnf2r_counts)))
+mcols(bound)<-cbind(mcols(bound),rnf2r_counts)
+bound<-bound[with(bound, order(-H1_BCORminus_P038_Index2_S13.R1_trimmed.fastq.bam))]
+save(bound,file="bound_rnf2r_order.rdata")
+
+
+#rnf2r<-tornado(bound,pad=9000,rnf2r_fileset,ord=3,color="#0052bf",window=100)
+#ggsave(file=paste0(ts,"_figure4x_rnf2r_bound.png"),plot=rnf2r,width=9,height=8)
+
+bamlst<-BamFileList(k2bko_fileset@filename,yieldSize = 1e7)
+
+#inter.feature=FALSE will allow reads to count for multiple features
+system.time(k2bko_counts<-summarizeOverlaps(bound,bamlst,mode = "Union",ignore.strand = TRUE,inter.feature=FALSE))
+apply(assays(k2bko_counts)$counts,2,sum)
+k2bko_counts<-as.data.frame(assays(k2bko_counts)$counts)
+stopifnot(all.equal(names(bound),rownames(k2bko_counts)))
+mcols(bound)<-cbind(mcols(bound),k2bko_counts)
+bound<-bound[with(bound, order(-H1_k2bko_BCOR_P36_Index17_S16.fastq.bam))]
+save(bound,file="bound_k2bko_order.rdata")
+
+
+
+#k2bko<-tornado(bound,pad=9000,k2bko_fileset,ord=3,color="#0052bf",window=100)
+#ggsave(file=paste0(ts,"_figure4x_k2bko_bound.png"),plot=k2bko,width=9,height=8)
+
+```
+
+```{r}
+load("bound_rnf2r_order_Fri_Sep_15_2017_1958.rdata")
+bound[grep("EOMES",bound$hgnc),]
+bound_rnf2r<-mcols(bound)[,c(1:2,41:47)]
+
+for (i in seq_along(rnf2r_fileset@filename)) {
+  print(colnum<-which(colnames(bound_rnf2r)==basename(rnf2r_fileset@filename[i])))
+  colnames(bound_rnf2r)[colnum]<-paste0(rnf2r_fileset@labels[i]," cpm")
+  bound_rnf2r[,colnum]<-round(1e6*bound_rnf2r[,colnum]/as.numeric(rnf2r_fileset@count[i]),3)
+}
+head(bound_rnf2r)
+
+load("bound_k2bko_order_Fri_Sep_15_2017_1958.rdata")
+bound_k2bko<-mcols(bound)[,c(1:2,41:44)]
+
+for (i in seq_along(k2bko_fileset@filename)) {
+  print(colnum<-which(colnames(bound_k2bko)==basename(k2bko_fileset@filename[i])))
+  colnames(bound_k2bko)[colnum]<-paste0(k2bko_fileset@labels[i]," cpm")
+  bound_k2bko[,colnum]<-round(1e6*bound_k2bko[,colnum]/as.numeric(k2bko_fileset@count[i]),3)
+}
+head(bound_k2bko)
+
+bound<-bound_rnf2r
+summary(idx<-match(bound$ensembl,bound_k2bko$ensembl))
+bound$`INPUT cpm`<-bound_k2bko[idx,]$`INPUT cpm`
+bound$`BCOR WT cpm`<-bound_k2bko[idx,]$`BCOR WT cpm`
+bound$`BCOR K2BKO cpm`<-bound_k2bko[idx,]$`BCOR K2BKO cpm`
+
+colnames(bound)<-gsub(" ","_",colnames(bound)) %>% gsub("\\+","w_RNF2",.) %>% gsub("\\-","wo_RNF2",.) %>%  gsub("_cpm","",.)
+bound[grep("EOMES",bound$hgnc),]
+write.csv(bound,file="BCOR_KDM2B_INPUT_cpms_for_2kp_strong_weak_TSS_091517.csv",quote=F,row.names=F)
+
+
+
+bound %>% as.data.frame() %>% 
+  dplyr::select(-hgnc,-ensembl) %>% 
+  dplyr::select(INPUT_w_RNF2,INPUT_wo_RNF2,BCOR_w_RNF2,BCOR_wo_RNF2,BCOR_WT,BCOR_K2BKO,INPUT,class) %>% 
+  tidyr::gather(chip,cpm,-class) %>%
+  mutate(chip=factor(chip,levels=c("BCOR_wo_RNF2","INPUT_wo_RNF2","BCOR_w_RNF2","INPUT_w_RNF2","BCOR_K2BKO","BCOR_WT","INPUT"))) %>% 
+  mutate(cpm=log2(cpm)) %>%
+  ggplot(aes(x=cpm,y=chip,fill=chip)) +geom_density_ridges(scale=1.0) + theme_bw() + scale_fill_manual(values=cbPalette[c(4,2,7,2,5,6,2)]) + facet_grid(class ~ .) +
+  xlab("Log2(cpm)") +ylab("") + ggtitle("BCOR ChIP Distributions in RNF2 and KDM2B Mutants") + 
+  scale_y_discrete(expand = c(0.075, 0)) + 
+  geom_density_ridges(rel_min_height = 0.1)
+
+bound %>% as.data.frame() %>% 
+  dplyr::select(-hgnc,-ensembl) %>% 
+  dplyr::select(KDM2B_w_RNF2,KDM2B_wo_RNF2,class) %>% 
+  tidyr::gather(chip,cpm,-class) %>%
+  mutate(chip=factor(chip,levels=c("KDM2B_wo_RNF2","KDM2B_w_RNF2","BCOR_K2BKO","BCOR_WT"))) %>% 
+  mutate(cpm=log2(cpm)) %>%
+  ggplot(aes(x=cpm,y=chip,fill=chip)) + geom_density_ridges() + theme_bw() + 
+  scale_fill_manual(values=cbPalette[c(4,7)]) + facet_grid(class ~ .) +
+  xlab("Log2(cpm)") +ylab("") + ggtitle("KDM2B ChIP Distributions +/- RNF2")  
+
+
+```
+
+
+#metaplots
+```{r}
+
+temp<-tss_classified[tss_classified$class=="strong"]
+temp2<-sample(tss_classified[tss_classified$class=="nobinding"],length(temp))
+
+temp<-sample(tss_classified[tss_classified$class=="strong"],100)
+temp2<-sample(tss_classified[tss_classified$class=="nobinding"],101)
+
+gr<-GRangesList(list(temp,temp2))
+names(gr)<-c("strong","nobinding")
+
+twister(gr,dataset=bcor_fileset,pad=9000)
+tornado(temp,dataset=bcor_fileset,pad=9000,ord=0,color="red2")
+
+```
+
+```{r}
+summary(degs_bcor_up<-rownames(subset(res_bcorsh,padj< alpha & log2FoldChange > lfc_thres)))
+summary(degs_bcor_nc<-rownames(subset(res_bcorsh,padj> alpha & abs(log2FoldChange) <= lfc_thres)))
+summary(degs_bcor_dn<-rownames(subset(res_bcorsh,padj< alpha & log2FoldChange < -1*lfc_thres)))
+
+#strong
+length(temp_up<-tss_classified[tss_classified$class=="strong" & tss_classified$BCOR_fpkm > 2.5 & tss_classified$ensembl %in% degs_bcor_up])
+length(temp_dn<-tss_classified[tss_classified$class=="strong" & tss_classified$H1P_fpkm > 2.5 & tss_classified$ensembl %in% degs_bcor_dn])
+length(temp_nr<-tss_classified[tss_classified$class=="strong" & !(tss_classified$ensembl %in% degs_bcor_up | tss_classified$ensembl %in% degs_bcor_dn)])
+
+gr_strong<-GRangesList(list(temp_up,temp_nr,temp_dn))
+names(gr_strong)<-c("UP","NR","DN")
+lapply(gr_strong,length)
+
+#weak
+length(temp_up<-tss_classified[tss_classified$class=="weak" & tss_classified$BCOR_fpkm > 2.5 & tss_classified$ensembl %in% degs_bcor_up])
+length(temp_dn<-tss_classified[tss_classified$class=="weak" & tss_classified$H1P_fpkm > 2.5 & tss_classified$ensembl %in% degs_bcor_dn])
+length(temp_nr<-tss_classified[tss_classified$class=="weak" & !(tss_classified$ensembl %in% degs_bcor_up | tss_classified$ensembl %in% degs_bcor_dn)])
+
+gr_weak<-GRangesList(list(temp_up,temp_nr,temp_dn))
+names(gr_weak)<-c("UP","NR","DN")
+lapply(gr_weak,length)
+save(gr_strong,gr_weak,file="meta_grannges.rdata")
+
+gg_pol2<-twister(gr,dataset=pol2_fileset,pad=9000)
+ggsave(gg_pol2,file="gg_pol2.pdf",height=5,width=5)
+
+
+twister(gr,dataset=rna_fileset,pad=9000)
+twister(gr,dataset=input_fileset,pad=9000)
+twister(gr,dataset=bcor_fileset,pad=9000)
+twister(gr,dataset=ser7p_fileset,pad=9000,sample_name = "Ser7p")
+
+twister(gr,dataset=pol2_fileset,pad=9000)
+
+
+
+twister(gr,dataset=rna_fileset,pad=9000)
+twister(gr,dataset=bcor_fileset,pad=9000)
+
+
+
+twister(gr[1:2],dataset=rna_fileset,pad=9000)
+
+twister(gr,dataset=bcor_fileset,pad=9000)
+
+twister(gr[1:2],dataset=pol2_fileset,pad=9000)
+
+twister(gr,dataset=cbx2rybp_fileset,pad=9000)
+twister(gr,dataset=histones_fileset,pad=9000)
+twister(gr,dataset=dnase_fileset,pad=9000)
+twister(gr,dataset=cgi_fileset,pad=9000)
+
+```
+
+#correlation matrix
+https://stackoverflow.com/questions/41339515/single-correlation-heatmap-in-r-with-two-different-correlation-matrix-but-same
+```{r}
+
+```
+
+
