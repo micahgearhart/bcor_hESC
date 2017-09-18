@@ -56,6 +56,7 @@ reds <- colorRampPalette(brewer.pal(n = 9, "Reds"))
 
 p_param <- PileupParam(distinguish_nucleotides=FALSE,
                        distinguish_strands=FALSE,
+                       min_base_quality=0,
                        min_nucleotide_depth=0)
 
 #plotCounts function for DESeq DDS objects
@@ -87,12 +88,13 @@ pileup_by_pos <- function(i,env = parent.frame()) {
          pileupParam=p_param) %>% 
     mutate(which_label=gsub("chr","",which_label)) %>%
     mutate(seqnames=gsub("chr","",seqnames)) %>%
-    mutate(count=ceiling(count*1e6/dataset@count[which(files==i)])) %>% 
+#    mutate(count=ceiling(count*1e6/dataset@count[which(files==i)]))%>% 
+#    mutate(count=count*1e6/dataset@count[which(files==i)])%>% 
     mutate(genotype=dataset@labels[which(files==i)]) %>% 
     mutate(startpos=0.001*plyr::round_any(pos-swl(which_label)-pad - 0.5*width(gr[1]),window)) %>% 
     mutate(startpos=ifelse(strandHash[which_label]=="-",-1*startpos,startpos)) %>% 
     group_by(genotype,which_label,startpos) %>%
-    summarize(count=sum(count)) %>% 
+    summarize(count=sum(count)*1e6/(dataset@count[which(files==i)]*window)) %>% 
 #    mutate(count=log2(count)) %>% 
     ungroup() 
 }
@@ -301,7 +303,7 @@ twister <- function(gr,dataset,pad=250,ord=1,window=5,color="red2",ya=c(0,20),sa
       ungroup() %>%
       dplyr::filter((startpos != max(startpos)) & (startpos != min(startpos))) %>% #edge effects
       dplyr::mutate(normalizer = normalizerHash[as.character(whichgr)]) %>% 
-      dplyr::mutate(count = count/normalizer) %>% 
+      dplyr::mutate(count = count/normalizer)  %>% 
      # dplyr::mutate(count = log2(count)) %>% 
      # tidyr::spread(genotype,count) %>% 
     #  dplyr::mutate(count = CHIP - INPUT) %>% 
@@ -311,8 +313,8 @@ twister <- function(gr,dataset,pad=250,ord=1,window=5,color="red2",ya=c(0,20),sa
       #dplyr::mutate(count = count - min(count)) %>% 
       #ungroup() %>%
       ggplot(aes(x=startpos,y=count)) +
-      #geom_line(aes(color=whichgr)) +
-      stat_smooth(aes(color=whichgr),method="loess") +
+      geom_line(aes(color=whichgr)) +
+      #stat_smooth(aes(color=whichgr),method="loess") +
       ylab("Average cpm") + xlab("Position Relative to TSS (kb)") +
       facet_grid(.~ genotype) +
       scale_color_manual(values=c("#A2AED9","#BFBFBF","#EF3A38"),name="")+
@@ -322,7 +324,6 @@ twister <- function(gr,dataset,pad=250,ord=1,window=5,color="red2",ya=c(0,20),sa
                          panel.grid.minor=element_blank())
       
   )
-  
 
   }
 

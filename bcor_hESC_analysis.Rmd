@@ -18,6 +18,7 @@ library("DESeq2")
 library("magrittr")
 library("dplyr")
 library("ggplot2")
+library("ggridges")
 library("VennDiagram")
 library("AnnotationHub")
 library("goseq")
@@ -36,14 +37,14 @@ make a txdb dataframe
 ```{r}
 
 
-tx2gene<-read.delim("../salmon/bcor1a_gcbias/quant.sf",stringsAsFactors = F)
+tx2gene<-read.delim("../hESC/salmon/bcor1a_gcbias/quant.sf",stringsAsFactors = F)
 tx2gene<-tx2gene[,1,drop=F]
 colnames(tx2gene)<-"TXNAME"
 tx2gene$GENEID<-sapply(strsplit(tx2gene$TXNAME,"\\|"),function(x) x[2]) %>% substr(.,1,15)
 head(tx2gene)
 
-samples<-list.files("../salmon") %>% grep("gcbias",.,value=T)
-files <- file.path( "../salmon", samples, "quant.sf")
+samples<-list.files("../hESC/salmon") %>% grep("gcbias",.,value=T)
+files <- file.path( "../hESC/salmon", samples, "quant.sf")
 names(files) <- samples %>%  gsub("_gcbias","",.)
 all(file.exists(files))
 
@@ -67,10 +68,7 @@ plotPCA(normTransform(dds),intgroup=c("sample"))+
 
 ```{r}
 
-load("../hgnc.rdata")
-
-
-
+load("../hESC/hgnc.rdata")
 gg_plotCounts("EOMES")
 ```
 
@@ -140,7 +138,7 @@ vennplot <- draw.triple.venn(length(degs_bcor),
 ```
 
 # Classify TSS's
-```{r}
+```{r make_tss_prom,eval=F}
 txdb<-makeTxDbFromGFF("../gencode.v27.basic.annotation.gff3",format = "gff3")
 tss_prom<-trim(promoters(txdb,upstream=1000,downstream=1000))
 
@@ -182,7 +180,7 @@ save(tss_counts_ncbi,tss_counts_ucsc,tsswide_counts_ncbi,tsswide_counts_ucsc,fil
 ```
 
 Classify TSS_counts
-```{r}
+```{r classify_tss,eval=F}
 load("tss_counts.rdata")
 load("tss_prom.rdata")
 
@@ -281,14 +279,14 @@ df <- rbind( data.frame(res_bcorsh[,c("baseMean","log2FoldChange","padj","class"
              data.frame(res_kdm2b[,c("baseMean","log2FoldChange","padj","class","wt_fpkm")],factor="KDM2B"))
 
 table(df$class,useNA="ifany")
-df %>% 
-  dplyr::filter(!(is.na(log2FoldChange) | is.na(padj) | is.na(class))) %>% 
-  mutate(plog= -1*log10(padj)) %>% 
-  mutate(class= factor(class,levels=c("strong","weak","nobinding"))) %>% 
-  mutate(factor= factor(factor,levels=c("BCOR","RAB","KDM2B"))) %>% 
-  mutate(log2fpkm=log2(wt_fpkm+1)) %>% 
-  ggplot(aes(x=log2FoldChange,y=plog,color=log2fpkm)) + geom_point() + 
-  facet_grid( class ~ factor) +theme_bw() +scale_color_gradientn(colors=rainbow(10),name="Log2(WT FPKM + 1)")
+#df %>% 
+#  dplyr::filter(!(is.na(log2FoldChange) | is.na(padj) | is.na(class))) %>% 
+#  mutate(plog= -1*log10(padj)) %>% 
+#  mutate(class= factor(class,levels=c("strong","weak","nobinding"))) %>% 
+#  mutate(factor= factor(factor,levels=c("BCOR","RAB","KDM2B"))) %>% 
+#  mutate(log2fpkm=log2(wt_fpkm+1)) %>% 
+#  ggplot(aes(x=log2FoldChange,y=plog,color=log2fpkm)) + geom_point() + 
+#  facet_grid( class ~ factor) +theme_bw() +scale_color_gradientn(colors=rainbow(10),name="Log2(WT FPKM + 1)")
 
 ```
 
@@ -310,14 +308,14 @@ summary(idx<-match(rownames(res),x$ensembl))
 res$class<-x[idx,"class"]
 res<-res[,c(19,20,1:6,8:12,14:18)]
 head(res)
-write.csv(res,file="deseq2_moderated_log2FC_data_090517.csv",quote=F,row.names = T)
+#write.csv(res,file="deseq2_moderated_log2FC_data_090517.csv",quote=F,row.names = T)
 
 #f_sh<-fpkm(dds_shRNA,robust = TRUE)
 #par(mfrow=c(1,1))
 ```
 
 Figure 2f
-```{r}
+```{r add_fpkm,eval=T}
 #f_sh["ENSG00000163508",]
 
 
@@ -331,7 +329,7 @@ tss_classified$H1_RAB_fpkm<-(f[idx,"RAB1"]+f[idx,"RAB2"])/2
 tss_classified$WT_fpkm<-f[idx,"wt"]
 tss_classified$KDM2B_fpkm<-(f[idx,"kdm2b1"]+f[idx,"kdm2b2"])/2
 
-write.csv(mcols(tss_classified),file="chip_enrichment_and_fpkm_data_090517.csv",quote=F,row.names = F)
+#write.csv(mcols(tss_classified),file="chip_enrichment_and_fpkm_data_090517.csv",quote=F,row.names = F)
 
 tx2gene$symbol<-sapply(strsplit(tx2gene[,"TXNAME"],"\\|"), function(x) x[6])
 tx2gene$biotype<-factor(sapply(strsplit(tx2gene[,"TXNAME"],"\\|"), function(x) x[8]))
@@ -629,7 +627,7 @@ bcor_fileset<-new("fileset", filename=c( "../H1_wt_BCOR_P36_Index15_S14.fastq.ba
            labels=c("BCOR","UbH2A"))
 (bcor_fileset<-countFileset(bcor_fileset))
 
-pol2_fileset<-new("fileset", filename=c( "../estaras_Ser5P_RNAPII_untreated_SRR1745499.R1_trimmed.fastq.bam","../estaras_Ser7P_RNAPII_untreated_SRR1745503.R1_trimmed.fastq.bam"),
+pol2_fileset<-new("fileset", filename=c( "../hESC/estaras_Ser5P_RNAPII_untreated_SRR1745499.R1_trimmed.fastq.bam","../hESC/estaras_Ser7P_RNAPII_untreated_SRR1745503.R1_trimmed.fastq.bam"),
            labels=c("Ser5P","Ser7p"))
 (pol2_fileset<-countFileset(pol2_fileset))
 
@@ -651,7 +649,7 @@ prc1_fileset<-new("fileset",filename=c("../H1_egs_KDM2B_P36_Index11_S6.fastq.bam
                   labels=c("KDM2B","RNF2","PCGF1"))
 prc1_fileset<-countFileset(prc1_fileset)
 
-rna_fileset<-new("fileset", filename=c( "../H1P1A_CGATGT.bam","../BCOR1A_TGACCA.bam"),
+rna_fileset<-new("fileset", filename=c( "../hESC/H1P1A_CGATGT.bam","../hESC/BCOR1A_TGACCA.bam"),
            labels=c("H1P","shBCOR"))
 (rna_fileset<-countFileset(rna_fileset))
 
@@ -672,12 +670,18 @@ histones_fileset<-new("fileset", filename=c( "../H1_H3K4me3_ENCFF571AXH.bam","..
                                              "../ubH2A_H1_081816_GRCh38.bam"),
            labels=c("H3K4me3","H3K27me3","H3K36me2","H3K79me2","H2AK119ub"))
 (histones_fileset<-countFileset(histones_fileset))
+
+
+
+(histones_fileset<-countFileset(new("fileset", filename=c( "../hESC/H1_H3K27me3_ENCFF171RVK.bam",
+                                             "../hESC/H3K36me2_ChIP_zheng_GCCAAT_bothruns.R1_trimmed.fastq.bam"),
+           labels=c("H3K27me3","H3K36me2"))))
 ```
 
 
 # Summarize counts for the BCOR ChIP-seqs in K2B KO and RNF2-R for stacked histogram plots
-```{r}
-load("../filesets.rdata")
+```{r summarize_rnf2r_k2bko,eval=F}
+load("filesets.rdata")
 load("tss_classified_081817.rdata")
 register(MulticoreParam(workers=8))
 
@@ -774,6 +778,39 @@ bound %>% as.data.frame() %>%
 
 ```
 
+```{r}
+bound$rfc<-log2(bound$BCOR_w_RNF2)-log2(bound$BCOR_wo_RNF2)
+bound$kfc<-log2(bound$BCOR_WT)-log2(bound$BCOR_K2BKO)
+cor(bound$rfc[bound$class=="strong"],bound$kfc[bound$class=="strong"],method="spearman")
+cor(bound$rfc[bound$class=="weak"],bound$kfc[bound$class=="weak"],method="spearman")
+cor(bound$rfc,bound$kfc,method="spearman")
+
+plot(bound$rfc[bound$class=="strong"],bound$kfc[bound$class=="strong"],cex=0.5,pch=16)
+plot(bound$rfc[bound$class=="weak"],bound$kfc[bound$class=="weak"],cex=0.5,pch=16)
+
+#add deg from expression to color scatterplots
+summary(idx<-match(bound$ensembl,tss_classified$ensembl))
+bound$deg<-tss_classified[idx,]$deg
+
+bound[bound$class=="strong",] %>% as.data.frame() %>% 
+  dplyr::select(rfc,kfc,deg) %>% 
+  dplyr::filter(deg=="UP" | deg=="DN") %>% 
+  ggplot(aes(x=rfc,y=kfc,colour=deg)) + scale_colour_manual(values=cbPalette[c(1,3,5,6)]) +
+  geom_point() +theme_bw()
+
+temp<-bound[bound$class!="basfa",] %>% as.data.frame() %>% 
+  dplyr::select(rfc,kfc,deg) %>% 
+  arrange(rfc-kfc) %>% 
+  t %>% 
+  pheatmap(cluster_rows=F,cluster_cols=F,labels_col="",labels_row=c("BCOR ChIP FC in RNF2-R","BCOR ChIP FC in KDM2B KO"))
+
+all.equal(rownames(df),rownames(temp))
+
+ann_colors = list(deg = c("white", "firebrick","green","red"))
+pheatmap(temp[,1:2],cluster_rows=F,cluster_cols=F,labels_row="",annotation_row = df,annotation_colors = ann_colors)
+
+```
+
 
 #metaplots
 ```{r}
@@ -793,9 +830,9 @@ tornado(temp,dataset=bcor_fileset,pad=9000,ord=0,color="red2")
 ```
 
 ```{r}
-summary(degs_bcor_up<-rownames(subset(res_bcorsh,padj< alpha & log2FoldChange > lfc_thres)))
-summary(degs_bcor_nc<-rownames(subset(res_bcorsh,padj> alpha & abs(log2FoldChange) <= lfc_thres)))
-summary(degs_bcor_dn<-rownames(subset(res_bcorsh,padj< alpha & log2FoldChange < -1*lfc_thres)))
+summary(degs_bcor_up<-rownames(subset(res_bcorsh,padj_bcorsh < alpha & log2FoldChange_bcorsh > lfc_thres)))
+summary(degs_bcor_nc<-rownames(subset(res_bcorsh,padj_bcorsh > alpha & abs(log2FoldChange_bcorsh) <= lfc_thres)))
+summary(degs_bcor_dn<-rownames(subset(res_bcorsh,padj_bcorsh < alpha & log2FoldChange_bcorsh < -1*lfc_thres)))
 
 #strong
 length(temp_up<-tss_classified[tss_classified$class=="strong" & tss_classified$BCOR_fpkm > 2.5 & tss_classified$ensembl %in% degs_bcor_up])
@@ -818,6 +855,31 @@ save(gr_strong,gr_weak,file="meta_grannges.rdata")
 
 gg_pol2<-twister(gr,dataset=pol2_fileset,pad=9000)
 ggsave(gg_pol2,file="gg_pol2.pdf",height=5,width=5)
+
+#alternatively add "UP","DN","NR" classification to tss_classified
+tss_classified$deg<-ifelse(tss_classified$BCOR_fpkm > 2.5 & tss_classified$ensembl %in% degs_bcor_up,"UP",
+                           ifelse(tss_classified$H1P_fpkm > 2.5 & tss_classified$ensembl %in% degs_bcor_dn,"DN",
+                           ifelse(!(tss_classified$ensembl %in% degs_bcor_up | tss_classified$ensembl %in% degs_bcor_dn),"NR","XX")))
+
+boxplot(log2(tss_classified[tss_classified$class=="strong"]$H3K27me3_wide +1) ~ tss_classified[tss_classified$class=="strong"]$deg, 
+        main="H3K27me3_wide",ylab="log2 (counts +1)")
+
+boxplot(log2(tss_classified[tss_classified$class=="strong"]$H3K36me2_wide+1) ~ tss_classified[tss_classified$class=="strong"]$deg, 
+        main="H3K36me2_wide",ylab="log2 (counts +1)")
+boxplot(log2(tss_classified[tss_classified$class=="strong"]$CBX2_wide+1) ~ tss_classified[tss_classified$class=="strong"]$deg, 
+        main="CBX2_wide",ylab="log2 (counts +1)")
+
+sum(tss_classified$class=="strong" & tss_classified$deg=="UP")
+mean(tss_classified[tss_classified$class=="strong" & tss_classified$deg=="UP"]$H3K27me3_wide)
+sum(tss_classified$class=="strong" & tss_classified$deg=="DN")
+mean(tss_classified[tss_classified$class=="strong" & tss_classified$deg=="DN"]$H3K27me3_wide)
+sum(tss_classified$class=="strong" & tss_classified$deg=="NR")
+mean(tss_classified[tss_classified$class=="strong" & tss_classified$deg=="NR"]$H3K27me3_wide)
+
+twister(gr_strong,dataset=histones_fileset,pad=0,window=25)
+
+table(tss_classified[tss_classified$class=="strong"]$deg)
+table(tss_classified[tss_classified$class=="weak"]$deg)
 
 
 twister(gr,dataset=rna_fileset,pad=9000)
@@ -850,6 +912,59 @@ twister(gr,dataset=cgi_fileset,pad=9000)
 #correlation matrix
 https://stackoverflow.com/questions/41339515/single-correlation-heatmap-in-r-with-two-different-correlation-matrix-but-same
 ```{r}
+load("../hESC/tss_classified_081817.rdata")
+head(tss_classified)
+mat_strong<-as.matrix(mcols(tss_classified[tss_classified$class=="strong"])[,c(7:22)])
+cor_strong <- cor(mat_strong,method="spearman")
+mat_weak<-as.matrix(mcols(tss_classified[tss_classified$class=="weak"])[,c(7:22)])
+cor_weak <- cor(mat_weak,method="spearman")
+
+cor_combined<-cor_weak
+cor_combined[upper.tri(cor_combined)] <- cor_strong[upper.tri(cor_strong)]
+diag(cor_combined) <- 0
+corrplot(cor_combined, method="circle")
+```
+
+```{r}
+gr<-GRanges(seqnames="20",IRanges(start=22522676,end=22522863),strand="*")
+seqlevelsStyle(gr)<-"UCSC"
+twister(gr,dataset=histones_fileset,pad=0,window=1)
+
+sbp_temp<-ScanBamParam(what = c("pos", "rname", "strand","qwidth"), which = gr,
+                          flag = scanBamFlag(isUnmappedQuery = FALSE))
+
+pileup("../hESC/H1_H3K27me3_ENCFF171RVK.bam" , scanBamParam=sbp_temp, pileupParam=p_param)
+
+(h3k27me3_fileset<-countFileset(new("fileset", filename=c( "../hESC/H1_H3K27me3_ENCFF171RVK.bam"),labels=c("H3K27me3"))))
+twister(gr_strong,dataset=h3k27me3_fileset,pad=0,window=1)
+blah2<-twister(gr_strong,dataset=h3k27me3_fileset,pad=9000,window=25)
+blah2 %>% group_by(genotype,whichgr) %>% summarize(sum=sum(count)/36) %>% ungroup
+
+(h3k36me2_fileset<-countFileset(new("fileset",filename=c("../hESC/H3K36me2_ChIP_zheng_GCCAAT_bothruns.R1_trimmed.fastq.bam"),labels=c("H3K36me2"))))
+twister(gr_strong,dataset=h3k36me2_fileset,pad=9000,window=25)
+
+(cgi_fileset<-countFileset(new("fileset",filename=c("../hESC/cgi_hg38_canon_ncbi.bam"),labels=c("CGI"))))
+twister(gr_strong,dataset=cgi_fileset,pad=9000,window=25)
+
+twister(gr_strong,dataset=rna_fileset,pad=9000,window=25)
+```
+
+```{r}
+
+
+files<-gsub("\\.bam","",sapply(strsplit(dataset@filename,"\\/"), function (x) x[length(x)]))
+
+plot_twists<-function (i,env=parent.frame()) {
+  temp_dataset<-new("fileset", filename=dataset@filename[which(files==i)],
+                    labels=dataset@labels[which(files==i)],
+                    count=dataset@count[which(files==i)])
+  twister(gr_strong,dataset=temp_dataset,pad=9000,window=25)
+}
+
+my_plots<-lapply(files,plot_twists)
+pdf("test_myplots.pdf",height=6,width=6)
+my_plots
+dev.off()
 
 ```
 
