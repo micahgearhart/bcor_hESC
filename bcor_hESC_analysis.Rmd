@@ -779,15 +779,17 @@ bound %>% as.data.frame() %>%
 ```
 
 ```{r}
-bound$rfc<-log2(bound$BCOR_w_RNF2)-log2(bound$BCOR_wo_RNF2)
-bound$kfc<-log2(bound$BCOR_WT)-log2(bound$BCOR_K2BKO)
+bound$rfc<-log2(bound$BCOR_wo_RNF2)-log2(bound$BCOR_w_RNF2)
+bound$kfc<-log2(bound$BCOR_K2BKO)-log2(bound$BCOR_WT)
 cor(bound$rfc[bound$class=="strong"],bound$kfc[bound$class=="strong"],method="spearman")
 cor(bound$rfc[bound$class=="weak"],bound$kfc[bound$class=="weak"],method="spearman")
 cor(bound$rfc,bound$kfc,method="spearman")
+bound[grep("ONECUT1",bound$hgnc),]
 
 plot(bound$rfc[bound$class=="strong"],bound$kfc[bound$class=="strong"],cex=0.5,pch=16)
 plot(bound$rfc[bound$class=="weak"],bound$kfc[bound$class=="weak"],cex=0.5,pch=16)
 
+bound<-as.data.frame(bound)
 #add deg from expression to color scatterplots
 summary(idx<-match(bound$ensembl,tss_classified$ensembl))
 bound$deg<-tss_classified[idx,]$deg
@@ -798,16 +800,44 @@ bound[bound$class=="strong",] %>% as.data.frame() %>%
   ggplot(aes(x=rfc,y=kfc,colour=deg)) + scale_colour_manual(values=cbPalette[c(1,3,5,6)]) +
   geom_point() +theme_bw()
 
-temp<-bound[bound$class!="basfa",] %>% as.data.frame() %>% 
-  dplyr::select(rfc,kfc,deg) %>% 
+
+
+bound[bound$class=="strong",] %>% as.data.frame() %>% 
+  dplyr::select(rfc,kfc) %>% 
   arrange(rfc-kfc) %>% 
   t %>% 
-  pheatmap(cluster_rows=F,cluster_cols=F,labels_col="",labels_row=c("BCOR ChIP FC in RNF2-R","BCOR ChIP FC in KDM2B KO"))
+  pheatmap(cluster_rows=F,cluster_cols=F,labels_col="",labels_row=c("BCOR ChIP FC in RNF2-R","BCOR ChIP FC in KDM2B KO"),col=rev(colorRampPalette(brewer.pal(11,"RdBu"))(200)))
 
-all.equal(rownames(df),rownames(temp))
+#all.equal(rownames(df),rownames(temp))
 
 ann_colors = list(deg = c("white", "firebrick","green","red"))
 pheatmap(temp[,1:2],cluster_rows=F,cluster_cols=F,labels_row="",annotation_row = df,annotation_colors = ann_colors)
+
+temp<-bound[bound$class=="strong",]
+temp$kdm2b_ex<-res_kdm2b[temp$ensembl,"log2FoldChange_k2bKO"]
+temp$rnf2r_ex<-res_rabsh[temp$ensembl,"log2FoldChange_rabsh"]
+head(temp)
+temp[grep("ONECUT1",temp$hgnc),]
+
+temp<-temp %>% as.data.frame() %>% 
+  dplyr::select(rfc,kfc,kdm2b_ex,rnf2r_ex,hgnc) %>% 
+  arrange(rfc-kfc) 
+barplot(temp$rfc,main="rfc")
+barplot(temp$rnf2r_ex,main="rnf2-r",ylim=c(-8,8))
+barplot(temp$kfc,main="kfc")
+barplot(temp$kdm2b_ex,main="kdm2b_ko",ylim=c(-8,8))
+sum(is.na(temp$rnf2r_ex))
+temp<-temp[!is.na(temp$kdm2b_ex),]
+
+temp %>% ggplot(aes(kdm2b_ex)) + geom_bar()
+
+  temp[,c(1:2)] %>% t %>% 
+  pheatmap(cluster_rows=F,cluster_cols=F,labels_col="",labels_row=c("BCOR ChIP FC in RNF2-R","BCOR ChIP FC in KDM2B KO"),col=rev(colorRampPalette(brewer.pal(11,"RdBu"))(200)))
+  
+  temp[,c(4,3)]  %>% t %>% 
+  pheatmap(cluster_rows=F,cluster_cols=F,labels_col="",labels_row=c("Expression FC in shRAB","Expression FC in KDM2BKO"),col=colorRampPalette(brewer.pal(11,"PRGn"))(200))
+  
+ 
 
 ```
 
@@ -914,15 +944,28 @@ https://stackoverflow.com/questions/41339515/single-correlation-heatmap-in-r-wit
 ```{r}
 load("../hESC/tss_classified_081817.rdata")
 head(tss_classified)
-mat_strong<-as.matrix(mcols(tss_classified[tss_classified$class=="strong"])[,c(7:22)])
+#mat_strong<-as.matrix(mcols(tss_classified[tss_classified$class=="strong"])[,c(7:22)])
+mat_strong<-as.matrix(mcols(tss_classified[tss_classified$class=="strong"])[,c(25:29,31:40)])
 cor_strong <- cor(mat_strong,method="spearman")
-mat_weak<-as.matrix(mcols(tss_classified[tss_classified$class=="weak"])[,c(7:22)])
+#mat_weak<-as.matrix(mcols(tss_classified[tss_classified$class=="weak"])[,c(7:22)])
+mat_weak<-as.matrix(mcols(tss_classified[tss_classified$class=="weak"])[,c(25:29,31:40)])
 cor_weak <- cor(mat_weak,method="spearman")
+
+
 
 cor_combined<-cor_weak
 cor_combined[upper.tri(cor_combined)] <- cor_strong[upper.tri(cor_strong)]
 diag(cor_combined) <- 0
-corrplot(cor_combined, method="circle")
+#corrplot(cor_combined, method="circle")
+mybreaksList = seq(-1, 1, by = 1/200)
+
+cor_strong %>% 
+pheatmap(cluster_rows=T,cluster_cols=T,col=rev(colorRampPalette(brewer.pal(11,"RdBu"))(length(mybreaksList))),breaks=mybreaksList)
+
+cor_weak %>% 
+pheatmap(cluster_rows=T,cluster_cols=T,col=rev(colorRampPalette(brewer.pal(11,"RdBu"))(length(mybreaksList))),breaks=mybreaksList)
+
+
 ```
 
 ```{r}
