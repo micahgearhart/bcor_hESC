@@ -111,7 +111,8 @@ write.csv(temp,file="BCOR_hESC_normalized_FPKM.csv",quote=F,row.names=T)
 
 Differential Expression
 ```{r}
-dds<-DESeq(dds)
+dds_sh<-dds[,colData(dds)$time==10 | (colData(dds)$time==0 & colData(dds)$sample=="WT")]
+dds_sh<-DESeq(dds_sh)
 alpha<-0.05
 lfc_thres<-0.0
 
@@ -1981,7 +1982,7 @@ save(gr_k2b_v_bcor,file="gr_k2b_v_bcor.rdata")
                                                "../hESC/1shH1P_k36_ACAGTG_L001_R1_all.R1_trimmed.fastq.bam"),
                                     labels=c("1shH1P-Input","1shH1P-H3K36me2"))))
 
-length(random<-sample(tss_classified[tss_classified$class=="strong"],200))
+length(random<-sample(tss_classified[tss_classified$class=="strong"],100))
 twister(random,dataset=k36me2,pad=9000,window=25,color=c("blue"))
 twister_diff(gr_k2b_v_bcor,dataset=k36me2,pad=9000,window=25,color=c("blue"))
 tornado_diff(random,dataset=k36me2,pad=9000,window=25,color=c("blue"))
@@ -2033,9 +2034,9 @@ length(bcor_genes<-rownames(subset(as.data.frame(res_tcbcor6), padj..bcor6 < 0.0
 length(rab_genes<-rownames(subset(as.data.frame(res_tcrab6), padj..rab6 < 0.05 )))  # all genes that change over time
 length(kdm2b_genes<-tss_classified$ensembl[tss_classified$deg_k2bKO!="NR" ])  #kdm2b degs
 
-length(bcor_genes<-bcor_genes[bcor_genes %in% tss_classified$ensembl[tss_classified$class=="strong"]])
-length(rab_genes<-rab_genes[rab_genes %in% tss_classified$ensembl[tss_classified$class=="strong"]])
-length(kdm2b_genes<-kdm2b_genes[kdm2b_genes %in% tss_classified$ensembl[tss_classified$class=="strong"]])
+length(bcor_genes<-bcor_genes[bcor_genes %in% tss_classified$ensembl[tss_classified$class!="nobinding"]])
+length(rab_genes<-rab_genes[rab_genes %in% tss_classified$ensembl[tss_classified$class!="nobinding"]])
+length(kdm2b_genes<-kdm2b_genes[kdm2b_genes %in% tss_classified$ensembl[tss_classified$class!="nobinding"]])
 
 #length(unique(c(bcor_genes,rab_genes,kdm2b_genes)))
 dim(f_diff<-f[unique(c(bcor_genes,rab_genes,kdm2b_genes)),c(1:7,16:22,25,14,15)])
@@ -2134,5 +2135,34 @@ idx2<-rownames(fpkm_df) %in% tss_classified[tss_classified$class=="weak"]$ensemb
 pheatmap(fpkm_df[idx2,],cluster_cols=F,show_rownames = F,scale="row",col=colors)
 
 
+```
+
+#define new up ranges for bcor_only, kdm2b only, and both
+```{r}
+length(bs<-tss_classified[(tss_classified$ensembl %in% bcor_genes ) & 
+                   !(tss_classified$ensembl %in% kdm2b_genes) &
+                   tss_classified$class=="strong"])
+length(ks<-tss_classified[!(tss_classified$ensembl %in% bcor_genes ) & 
+                   (tss_classified$ensembl %in% kdm2b_genes) &
+                   tss_classified$class=="strong"])
+length(bks<-tss_classified[(tss_classified$ensembl %in% bcor_genes ) & 
+                   (tss_classified$ensembl %in% kdm2b_genes) &
+                   tss_classified$class=="strong"])
+
+length(bw<-tss_classified[(tss_classified$ensembl %in% bcor_genes ) & 
+                   !(tss_classified$ensembl %in% kdm2b_genes) &
+                   tss_classified$class=="weak"])
+length(kw<-tss_classified[!(tss_classified$ensembl %in% bcor_genes ) & 
+                   (tss_classified$ensembl %in% kdm2b_genes) &
+                   tss_classified$class=="weak"])
+length(bkw<-tss_classified[(tss_classified$ensembl %in% bcor_genes ) & 
+                   (tss_classified$ensembl %in% kdm2b_genes) &
+                   tss_classified$class=="weak"])
+
+bcor_v_kdm2b_granges<-GRangesList(list(bs,bks,ks,bw,bkw,kw))
+names(bcor_v_kdm2b_granges)<-c("bs","bks","ks","bw","bkw","kw")
+lapply(bcor_v_kdm2b_granges,length)
+
+save("bcor_v_kdm2b_granges",file="bcor_v_kdm2b_granges.rdata")
 ```
 
