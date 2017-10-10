@@ -191,7 +191,8 @@ load("tss_prom.rdata")
 register(MulticoreParam(workers=16))
 
 fls<- wildtype_fileset@filename %>% grep("ENCFF",.,invert=TRUE, value = TRUE)
-fls<-c(fls,"H1_egs_input_P36_Index6_S10.fastq.bam","H1_k2bko_input_P36_Index8_S12.fastq.bam")
+fls<-c(fls,"H1_egs_input_P36_Index6_S10.fastq.bam","H1_k2bko_input_P36_Index8_S12.fastq.bam","Input_DNA_zheng_CAGATC_bothruns.R1_trimmed.fastq.bam")
+#fls<-c("../hESC/Input_DNA_zheng_CAGATC_bothruns.R1_trimmed.fastq.bam","../hESC/H3K36me2_ChIP_zheng_GCCAAT_bothruns.R1_trimmed.fastq.bam")
 bamlst<-BamFileList(fls,yieldSize = 1e7)
 seqlevelsStyle(tss_prom)<-"NCBI"
 
@@ -214,16 +215,18 @@ save(tss_counts_ncbi,tss_counts_ucsc,tsswide_counts_ncbi,tsswide_counts_ucsc,fil
 
 Classify TSS_counts
 ```{r classify_tss,eval=F}
-load("tss_counts.rdata")
+load("../hESC/tss_counts.rdata")
 load("tss_prom.rdata")
 
-tss_counts<-cbind(assays(tss_counts_ncbi)$counts,assays(tss_counts_ucsc)$counts)
-colnames(tss_counts)<-c("BCOR","KDM2B","RNF2","PCGF1","RYBP","CGI","H2AUb","H3K36me2","Ser5p","Ser7p","INPUT_EGS","INPUT","SUZ12","H3K27me3","CBX2","DNAse1","H3K4me3","H3K79me2")
-tss_counts<-tss_counts[,c("INPUT_EGS","INPUT","BCOR","KDM2B","RNF2","PCGF1","RYBP","CGI","H2AUb","H3K36me2","SUZ12","H3K27me3","CBX2","DNAse1","H3K4me3","H3K79me2","Ser5p","Ser7p")]
+tss_counts<-cbind(assays(tss_counts_ncbi)$counts,assays(tss_counts_ucsc)$counts,assays(tss_counts_k36me2)$counts)
+colnames(tss_counts)<-c("BCOR","KDM2B","RNF2","PCGF1","RYBP","CGI","H2AUb","H3K36me2","Ser5p","Ser7p","INPUT_EGS","INPUT","SUZ12","H3K27me3","CBX2","DNAse1","H3K4me3","H3K79me2","INPUT_H3K36me2","H3K36me2_rep")
+all.equal(tss_counts[,"H3K36me2"],tss_counts[,"H3K36me2_rep"])
+tss_counts<-tss_counts[,c("INPUT_EGS","INPUT","INPUT_H3K36me2","BCOR","KDM2B","RNF2","PCGF1","RYBP","CGI","H2AUb","H3K36me2","SUZ12","H3K27me3","CBX2","DNAse1","H3K4me3","H3K79me2","Ser5p","Ser7p")]
 
-tsswide_counts<-cbind(assays(tsswide_counts_ncbi)$counts,assays(tsswide_counts_ucsc)$counts)
-colnames(tsswide_counts)<-c("BCOR","KDM2B","RNF2","PCGF1","RYBP","CGI","H2AUb","H3K36me2","Ser5p","Ser7p","INPUT_EGS","INPUT","SUZ12","H3K27me3","CBX2","DNAse1","H3K4me3","H3K79me2")
-tsswide_counts<-tsswide_counts[,c("INPUT_EGS","INPUT","BCOR","KDM2B","RNF2","PCGF1","RYBP","CGI","H2AUb","H3K36me2","SUZ12","H3K27me3","CBX2","DNAse1","H3K4me3","H3K79me2","Ser5p","Ser7p")]
+tsswide_counts<-cbind(assays(tsswide_counts_ncbi)$counts,assays(tsswide_counts_ucsc)$counts,assays(tsswide_counts_k36me2)$counts)
+colnames(tsswide_counts)<-c("BCOR","KDM2B","RNF2","PCGF1","RYBP","CGI","H2AUb","H3K36me2","Ser5p","Ser7p","INPUT_EGS","INPUT","SUZ12","H3K27me3","CBX2","DNAse1","H3K4me3","H3K79me2","INPUT_H3K36me2","H3K36me2_rep")
+all.equal(tsswide_counts[,"H3K36me2"],tsswide_counts[,"H3K36me2_rep"])
+tsswide_counts<-tsswide_counts[,c("INPUT_EGS","INPUT","INPUT_H3K36me2","BCOR","KDM2B","RNF2","PCGF1","RYBP","CGI","H2AUb","H3K36me2","SUZ12","H3K27me3","CBX2","DNAse1","H3K4me3","H3K79me2","Ser5p","Ser7p")]
 
 round(data.frame(narrow=colSums(tss_counts),wide=colSums(tsswide_counts))/1e6,2)
 
@@ -256,7 +259,8 @@ length(tss_prom<-tss_prom[tss_prom$INPUT_EGS_wide < 400 & tss_prom$INPUT_wide < 
 #length(tss_prom)
 
 #colnames(mcols(tss_prom))
-x<-mcols(tss_prom)[,5:22]
+#  Went back and added Input samples to this table which are excluded from the clustering data
+x<-mcols(tss_prom)[,8:23]
 kx<-kmeans(x,3)
 tss_prom$class<-kx$cluster
 table(tss_prom$class)
@@ -329,20 +333,56 @@ table(df$class,useNA="ifany")
 Figure 2f
 ```{r add_fpkm,eval=T}
 #f_sh["ENSG00000163508",]
+load("../hESC/tss_classified_081817.rdata")
+
+x<-assays(tss_counts_k36me2)$counts
+summary(idx<-match(tss_classified$tx_name,rownames(x)))
+all.equal(tss_classified$H3K36me2,as.numeric(x[idx,"H3K36me2_ChIP_zheng_GCCAAT_bothruns.R1_trimmed.fastq.bam"]))
+tss_classified$INPUT_H3K36me2<-as.numeric(x[idx,"Input_DNA_zheng_CAGATC_bothruns.R1_trimmed.fastq.bam"])
+
+x<-assays(tsswide_counts_k36me2)$counts
+summary(idx<-match(tss_classified$tx_name,rownames(x)))
+all.equal(tss_classified$H3K36me2_wide,as.numeric(x[idx,"H3K36me2_ChIP_zheng_GCCAAT_bothruns.R1_trimmed.fastq.bam"]))
+tss_classified$INPUT_H3K36me2_wide<-as.numeric(x[idx,"Input_DNA_zheng_CAGATC_bothruns.R1_trimmed.fastq.bam"])
+head(tss_classified)
+
+mcols(tss_classified)<-mcols(tss_classified)[,c(1:6,42,7:24,43,25:41)]
+
+summary(idx<-match(tss_classified$ensembl,rownames(f_total)))
+tss_classified$H1P_ave_fpkm<-(f_total[idx,"h1p1a"]+f_total[idx,"h1p2a"])/2
+tss_classified$BCOR_ave_fpkm<-(f_total[idx,"bcor1a"]+f_total[idx,"bcor2a"])/2
+tss_classified$bcor_0_fpkm<-f_total[idx,"bcor_0"]
+tss_classified$bcor_1_fpkm<-f_total[idx,"bcor_1"]
+tss_classified$bcor_2_fpkm<-f_total[idx,"bcor_2"]
+tss_classified$bcor_3_fpkm<-f_total[idx,"bcor_3"]
+tss_classified$bcor_4_fpkm<-f_total[idx,"bcor_4"]
+tss_classified$bcor_5_fpkm<-f_total[idx,"bcor_5"]
+tss_classified$bcor_6_fpkm<-f_total[idx,"bcor_6"]
+
+tss_classified$H1_H1P_ave_fpkm<-(f_total[idx,"H1P1"]+f_total[idx,"H1P2"])/2
+tss_classified$H1_RAB_ave_fpkm<-(f_total[idx,"RAB1"]+f_total[idx,"RAB2"])/2
+tss_classified$r1b_0_fpkm<-f_total[idx,"r1b_0"]
+tss_classified$r1b_1_fpkm<-f_total[idx,"r1b_1"]
+tss_classified$r1b_2_fpkm<-f_total[idx,"r1b_2"]
+tss_classified$r1b_3_fpkm<-f_total[idx,"r1b_3"]
+tss_classified$r1b_4_fpkm<-f_total[idx,"r1b_4"]
+tss_classified$r1b_5_fpkm<-f_total[idx,"r1b_5"]
+tss_classified$r1b_6_fpkm<-f_total[idx,"r1b_6"]
+
+tss_classified$WT_fpkm<-f_total[idx,"wt"]
+tss_classified$KDM2B_ave_fpkm<-(f_total[idx,"kdm2b1"]+f_total[idx,"kdm2b2"])/2
+tss_classified$kdm2b1_fpkm<-f_total[idx,"kdm2b1"]
+tss_classified$kdm2b2_fpkm<-f_total[idx,"kdm2b2"]
+
+tss_classified$bcor_deg<-f_total[idx,"bcor_deg"]
+tss_classified$rab_deg<-f_total[idx,"rab_deg"]
+tss_classified$kdm2b_deg<-f_total[idx,"kdm2b_deg"]
+View(as.data.frame(mcols(tss_classified[tss_classified$class=="strong"])))
+write.csv(mcols(tss_classified),file="chip_enrichment_and_fpkm_data_101017.csv",quote=F,row.names = F)
+```
 
 
-summary(idx<-match(tss_classified$ensembl,rownames(f)))
-tss_classified$H1P_fpkm<-(f[idx,"h1p1a"]+f[idx,"h1p2a"])/2
-tss_classified$BCOR_fpkm<-(f[idx,"bcor1a"]+f[idx,"bcor2a"])/2
-
-tss_classified$H1_H1P_fpkm<-(f[idx,"H1P1"]+f[idx,"H1P2"])/2
-tss_classified$H1_RAB_fpkm<-(f[idx,"RAB1"]+f[idx,"RAB2"])/2
-
-tss_classified$WT_fpkm<-f[idx,"wt"]
-tss_classified$KDM2B_fpkm<-(f[idx,"kdm2b1"]+f[idx,"kdm2b2"])/2
-
-#write.csv(mcols(tss_classified),file="chip_enrichment_and_fpkm_data_090517.csv",quote=F,row.names = F)
-
+```{r}
 tx2gene$symbol<-sapply(strsplit(tx2gene[,"TXNAME"],"\\|"), function(x) x[6])
 tx2gene$biotype<-factor(sapply(strsplit(tx2gene[,"TXNAME"],"\\|"), function(x) x[8]))
 tx2gene$biotype<-factor(tx2gene$biotype,levels(tx2gene$biotype)[c(24,12,14,22,1:11,13,15:21,23,25:49)])
@@ -2019,48 +2059,95 @@ res_tcbcor6 <- results(dds_tcbcor6)
 colnames(res_tcbcor6)<-paste(colnames(res_tcbcor6),".bcor6")
 
 #res_tc<-cbind(res_tcrab3,res_tcrab6,res_tcbcor3,res_tcbcor6)
-res_tc<-cbind(res_tcrab6,res_tcbcor6)
-idx<-match(rownames(res_tc),hgnc$ensembl_gene_id)
-res_tc$hgnc<-hgnc[idx,"hgnc_symbol"]
+#res_tc<-cbind(res_tcrab6,res_tcbcor6)
+#idx<-match(rownames(res_tc),hgnc$ensembl_gene_id)
+#res_tc$hgnc<-hgnc[idx,"hgnc_symbol"]
 
 #dim(res_tc_dif<-subset(res_tc,(abs(log2FoldChange..rab3) > 1 & padj..rab3 < 0.05) |
 #                          (abs(log2FoldChange..rab6) > 1 & padj..rab6 < 0.05) |
 #                          (abs(log2FoldChange..bcor3) > 1 & padj..bcor3 < 0.05) |
 #                          (abs(log2FoldChange..bcor6) > 1 & padj..bcor6 < 0.05) ))
-dim(res_tc_dif<-subset(res_tc, (abs(log2FoldChange..rab6) > 1 & padj..rab6 < 0.05) |
-                          ((abs(log2FoldChange..bcor6) > 1 & padj..bcor6 < 0.05) ))
+#dim(res_tc_dif<-subset(res_tc, (abs(log2FoldChange..rab6) > 1 & padj..rab6 < 0.05) |
+#                          ((abs(log2FoldChange..bcor6) > 1 & padj..bcor6 < 0.05) ))
 
 length(bcor_genes<-rownames(subset(as.data.frame(res_tcbcor6), padj..bcor6 < 0.05 )))  # all genes that change over time
 length(rab_genes<-rownames(subset(as.data.frame(res_tcrab6), padj..rab6 < 0.05 )))  # all genes that change over time
 length(kdm2b_genes<-tss_classified$ensembl[tss_classified$deg_k2bKO!="NR" ])  #kdm2b degs
 
-length(bcor_genes<-bcor_genes[bcor_genes %in% tss_classified$ensembl[tss_classified$class!="nobinding"]])
-length(rab_genes<-rab_genes[rab_genes %in% tss_classified$ensembl[tss_classified$class!="nobinding"]])
-length(kdm2b_genes<-kdm2b_genes[kdm2b_genes %in% tss_classified$ensembl[tss_classified$class!="nobinding"]])
+#skip this section because we need to assign all genes
+#length(bcor_genes<-bcor_genes[bcor_genes %in% tss_classified$ensembl[tss_classified$class!="nobinding"]])
+#length(rab_genes<-rab_genes[rab_genes %in% tss_classified$ensembl[tss_classified$class!="nobinding"]])
+#length(kdm2b_genes<-kdm2b_genes[kdm2b_genes %in% tss_classified$ensembl[tss_classified$class!="nobinding"]])
 
 #length(unique(c(bcor_genes,rab_genes,kdm2b_genes)))
-dim(f_diff<-f[unique(c(bcor_genes,rab_genes,kdm2b_genes)),c(1:7,16:22,25,14,15)])
+#dim(f_diff<-f[unique(c(bcor_genes,rab_genes,kdm2b_genes)),c(1:7,16:22,25,14,15)])
+dim(f_diff<-f[,c(1:7,16:22,25,14,15)])
 table(apply(f_diff,1,function(x) sum(x > 2.5)))
 dim(f_diff<-f_diff[apply(f_diff,1,function(x) sum(x > 2.5)) > 0,])
-f_diff<-log2(f_diff+0.1)
+f_diff<-as.data.frame(f_diff)
 #get fold change over t=0
-head(f_diff)
-temp<-cbind(f_diff[,2:7]-f_diff[,1],f_diff[,9:14]-f_diff[,8],f_diff[,16:17]-f_diff[,15])
+temp<-log2(f_diff+0.1)
+temp<-cbind(temp[,2:7]-temp[,1],temp[,9:14]-temp[,8],temp[,16:17]-temp[,15])
+
+table(f_diff$bcor_deg<-ifelse(temp$bcor_1 > 1 | temp$bcor_2 > 1 | temp$bcor_3 > 1 | temp$bcor_4 > 1 | temp$bcor_5 > 1 | temp$bcor_6 > 1,"UP",
+                             ifelse(temp$bcor_1 < -1 | temp$bcor_2 < -1 | temp$bcor_3 < -1 | temp$bcor_4 < -1 | temp$bcor_5 < -1 | temp$bcor_6 < -1 , "DN","NR")))
+
+table(f_diff$rab_deg<-ifelse(temp$r1b_1 > 1 | temp$r1b_2 > 1 | temp$r1b_3 > 1 | temp$r1b_4 > 1 | temp$r1b_5 > 1 | temp$r1b_6 > 1,"UP",
+                             ifelse(temp$r1b_1 < -1 | temp$r1b_2 < -1 | temp$r1b_3 < -1 | temp$r1b_4 < -1 | temp$r1b_5 < -1 | temp$r1b_6 < -1, "DN","NR")))
+
+table(f_diff$k2b_deg<-ifelse(temp$kdm2b1 > 1 | temp$kdm2b2 > 1,"UP",
+                             ifelse(temp$kdm2b1 < -1 | temp$kdm2b2 < -1, "DN","NR")))
+
+f_total<-as.data.frame(f)
+summary(idx<-match(rownames(f_total),rownames(f_diff)))
+table(f_total$bcor_deg<-f_diff[idx,"bcor_deg"],useNA="ifany")
+table(f_total$rab_deg<-f_diff[idx,"rab_deg"],useNA="ifany")
+table(f_total$kdm2b_deg<-f_diff[idx,"k2b_deg"],useNA="ifany")
+
+#summary(idx2<-match(rownames(temp3),tss_classified$ensembl))
+#temp3$class<-tss_classified[idx2,"class"]
+
+#not define strong for each category for Venn Diagram
+#bcor_genes<-rownames(temp3[temp3$bcor_deg=="UP" & rownames(temp3) %in% tss_classified$ensembl[tss_classified$class=="strong"],])
+#rab_genes<-rownames(temp3[temp3$rab_deg=="UP" & rownames(temp3) %in% tss_classified$ensembl[tss_classified$class=="strong"],])
+#kdm2b_genes<-rownames(temp3[temp3$kdm2b_deg=="UP" & rownames(temp3) %in% tss_classified$ensembl[tss_classified$class=="strong"],])
+
+dim(f_strong<-f_total[rownames(f_total) %in% tss_classified$ensembl[tss_classified$class=="strong"],])
+length(bcor_genes<-rownames(subset(f_strong,bcor_deg=="UP")))
+length(rab_genes<-rownames(subset(f_strong,rab_deg=="UP")))
+length(kdm2b_genes<-rownames(subset(f_strong,kdm2b_deg=="UP")))
 
 #fpkm filter for UP in Venn Diagram
-temp<-as.data.frame(temp)
-length(bcor_genes<-bcor_genes[bcor_genes %in% rownames(temp[temp$bcor_1 > 1 | temp$bcor_2 > 1 | temp$bcor_3 > 1 | temp$bcor_4 > 1 | temp$bcor_5 > 1 | temp$bcor_6 > 1,])])
-length(rab_genes<-rab_genes[rab_genes %in% rownames(temp[temp$r1b_1 > 1 | temp$r1b_2 > 1 | temp$r1b_3 > 1 | temp$r1b_4 > 1 | temp$r1b_5 > 1 | temp$r1b_6 > 1,])])
-length(kdm2b_genes<-kdm2b_genes[kdm2b_genes %in% rownames(temp[temp$kdm2b1 > 1 | temp$kdm2b2 > 1,])])
+#temp<-as.data.frame(temp)
+#length(bcor_genes<-bcor_genes[bcor_genes %in% rownames(temp[temp$bcor_1 > 1 | temp$bcor_2 > 1 | temp$bcor_3 > 1 | temp$bcor_4 > 1 | temp$bcor_5 > 1 | temp$bcor_6 > 1,])])
+
+#length(rab_genes<-rab_genes[rab_genes %in% rownames(temp[temp$r1b_1 > 1 | temp$r1b_2 > 1 | temp$r1b_3 > 1 | temp$r1b_4 > 1 | temp$r1b_5 > 1 | temp$r1b_6 > 1,])])
+#length(kdm2b_genes<-kdm2b_genes[kdm2b_genes %in% rownames(temp[temp$kdm2b1 > 1 | temp$kdm2b2 > 1,])])
 #sanity check
 pheatmap(temp[rownames(temp) %in% bcor_genes,],cluster_cols=F,show_rownames = F,scale="none",col=colors)
 pheatmap(temp[rownames(temp) %in% rab_genes,],cluster_cols=F,show_rownames = F,scale="none",col=colors)
 pheatmap(temp[rownames(temp) %in% kdm2b_genes,],cluster_cols=F,show_rownames = F,scale="none",col=colors)
 
+#Venn Diagram
+overrideTriple<-T
+grid.newpage();
+vennplot <- draw.triple.venn(length(bcor_genes),
+                             length(rab_genes),
+                             length(kdm2b_genes),
+                             sum(bcor_genes %in% rab_genes), #n12
+                             sum(rab_genes %in% kdm2b_genes), #n23
+                             sum(bcor_genes %in% kdm2b_genes), #n13
+                             sum(bcor_genes[bcor_genes %in% rab_genes] %in% kdm2b_genes), #n123
+                             category=c("BCOR-R","RNF2-R","KDM2B KO"),
+                             cat.col=c("#A11DAB",cbPalette[1],cbPalette[5]),
+                             fill=c("#A11DAB",cbPalette[1],cbPalette[5]),
+                             scaled=T,euler.d=T)
+
+
 temp2<-temp[rownames(temp) %in% c(bcor_genes,rab_genes,kdm2b_genes),]
 pheatmap(temp2,cluster_cols=F,show_rownames = F,scale="none",col=colors)
 
-write.csv(temp2,file="Figure6_heatmap_table.csv",quote=F, col.names = T, row.names = T)
+write.csv(temp2,file=paste0("Figure6_heatmap_table_",ts,".csv"),quote=F, col.names = T, row.names = T)
 
 png(paste0("Figure6_timecourse_heatmap_",ts,".png"),width=3,height=4,units="in",res=150)
 pheatmap(temp2,cluster_cols=F,show_rownames = F,scale="none",col=colors)
@@ -2100,7 +2187,7 @@ x<-bcor_genes[bcor_genes$bcor_genes %in% rab_genes$rab_genes,"bcor_genes"]
 View(bcor_genes[!x %in% kdm2b_genes$kdm2b_genes,])
 ```
 
-#heatmaps
+#delete me
 ```{r}
 dim(f_diff<-f[unique(c(bcor_genes,rab_genes,kdm2b_genes)),c(1:7,16:22,25,14,15)])
 table(apply(f_diff,1,function(x) sum(x > 2.5)))
