@@ -374,11 +374,33 @@ tss_classified$KDM2B_ave_fpkm<-(f_total[idx,"kdm2b1"]+f_total[idx,"kdm2b2"])/2
 tss_classified$kdm2b1_fpkm<-f_total[idx,"kdm2b1"]
 tss_classified$kdm2b2_fpkm<-f_total[idx,"kdm2b2"]
 
+#Add Classifications based on shRNA Data
+tss_classified$bcorSH_deg<-ifelse(tss_classified$BCOR_ave_fpkm > 2.5 & tss_classified$ensembl %in% degs_bcor_up,"UP",
+                           ifelse(tss_classified$H1P_ave_fpkm > 2.5 & tss_classified$ensembl %in% degs_bcor_dn,"DN",
+                           ifelse(!(tss_classified$ensembl %in% degs_bcor_up | tss_classified$ensembl %in% degs_bcor_dn),"NR","XX")))
+
+table(tss_classified$bcorSH_deg)
+table(tss_classified[tss_classified$class=="strong"]$bcorSH_deg)
+
+tss_classified$k2bKO_deg<-ifelse(tss_classified$KDM2B_ave_fpkm > 2.5 & tss_classified$ensembl %in% degs_k2bKO_up,"UP",
+                           ifelse(tss_classified$WT_fpkm > 2.5 & tss_classified$ensembl %in% degs_k2bKO_dn,"DN",
+                           ifelse(!(tss_classified$ensembl %in% degs_k2bKO_up | tss_classified$ensembl %in% degs_k2bKO_dn),"NR","XX")))
+table(tss_classified$k2bKO_deg)
+table(tss_classified[tss_classified$class=="strong"]$k2bKO_deg)
+
+tss_classified$rabSH_deg<-ifelse(tss_classified$H1_RAB_ave_fpkm > 2.5 & tss_classified$ensembl %in% degs_rab_up,"UP",
+                           ifelse(tss_classified$H1_H1P_ave_fpkm > 2.5 & tss_classified$ensembl %in% degs_rab_dn,"DN",
+                           ifelse(!(tss_classified$ensembl %in% degs_rab_up | tss_classified$ensembl %in% degs_rab_dn),"NR","XX")))
+table(tss_classified$rabSH_deg)
+table(tss_classified[tss_classified$class=="strong"]$rabSH_deg)
+
+
+#Add Classifications based on timecourse Data
 tss_classified$bcor_deg<-f_total[idx,"bcor_deg"]
 tss_classified$rab_deg<-f_total[idx,"rab_deg"]
 tss_classified$kdm2b_deg<-f_total[idx,"kdm2b_deg"]
 View(as.data.frame(mcols(tss_classified[tss_classified$class=="strong"])))
-write.csv(mcols(tss_classified),file="chip_enrichment_and_fpkm_data_101017.csv",quote=F,row.names = F)
+write.csv(mcols(tss_classified),file=paste0("chip_enrichment_and_fpkm_data_",ts,".csv"),quote=F,row.names = F)
 ```
 
 
@@ -1008,9 +1030,9 @@ png(paste0("Figure6x_expression_heatmap_",ts,".png"),width=1,height=8,units="in"
 pheatmap(expression_df,cluster_rows=F,cluster_cols=F,labels_row="",col=colors,breaks=myBreaksList)
 dev.off()
 
-#(k2bko_fileset<-countFileset(new("fileset", filename=c("../hESC/H1_wt_BCOR_P36_Index15_S14.fastq.bam",
-#"../hESC/H1_k2bko_BCOR_P36_Index17_S16.fastq.bam"),
-#           labels=c("BCOR WT","BCOR K2BKO"))))
+(k2bko_fileset<-countFileset(new("fileset", filename=c("../hESC/H1_wt_BCOR_P36_Index15_S14.fastq.bam",
+"../hESC/H1_k2bko_BCOR_P36_Index17_S16.fastq.bam"),
+           labels=c("BCOR WT","BCOR K2BKO"))))
 
 summary(idx<-match(bound_strong_rnf2r_sort$ensembl,tss_classified$ensembl))
 
@@ -1094,7 +1116,7 @@ bound_strong_sort<-bound_strong %>% as.data.frame() %>%
 #  dplyr::mutate(e=log2(BCOR_K2BKO) - log2(INPUT)) %>% 
   dplyr::mutate(e=log2(BCOR_K2BKO_cpm) - log2(BCOR_WT_cpm)) %>% 
   dplyr::mutate(e_wide=log2(BCOR_K2BKO_wide_cpm) - log2(BCOR_WT_wide_cpm)) %>% 
-  dplyr::arrange(-BCOR_K2BKO_wide_cpm) 
+  dplyr::arrange(e_wide) 
   #dplyr::select(ensembl,e,BCOR_K2BKO)
 
 
@@ -1163,7 +1185,7 @@ chip_df<- bound_strong_sort[,c("BCOR_WT_cpm","BCOR_K2BKO_cpm","BCOR_WT_wide_cpm"
     mutate(BCOR_WT_wide=log2(BCOR_WT_wide_cpm)) %>% 
     select(BCOR_WT,BCOR_K2BKO,BCOR_WT_wide,BCOR_K2BKO_wide,e,e_wide)
 
-chip_df<- bound_strong_sort[,"e",drop=F]
+chip_df<- bound_strong_sort[,"e_wide",drop=F]
 rownames(chip_df)<-bound_strong_sort$ensembl
 
 #use breaklist to set midpoint to 0
@@ -1188,10 +1210,16 @@ dev.off()
 
 summary(idx<-match(bound_strong_sort$ensembl,tss_classified$ensembl))
 #system.time(k2bko<-tornado(tss_classified[idx],pad=9000,k2bko_fileset,ord=0,color="#0052bf",window=100)) #blue
-system.time(k2bko<-tornado(tss_classified[idx],pad=1000,k2bko_fileset,ord=0,color="#00441B",window=100)) #green
+system.time(k2bko<-tornado(tss_classified[idx],pad=9000,k2bko_fileset,ord=0,color="#00441B",window=100)) #green
 ggsave(file=paste0("figure4d_k2bko_bound_",ts,".png"),plot=k2bko+theme(panel.border = element_blank()),width=5,height=8)
 
 #plot "e" by itself in heatmap
+
+#temp is defined as difference between t=0 below
+summary(idx<-match(bound_strong_sort$ensembl,rownames(temp)))
+pheatmap(temp[idx,c(1:6,13,14)],cluster_cols=F,cluster_rows=F,show_rownames = F,scale="none",col=colors)
+
+write.csv(temp[idx,c(1:6,13,14)],paste0("Figure4E_heatmap_table_",ts,".csv"),quote=F, row.names = T)
 
 ```
 
@@ -1471,24 +1499,25 @@ ggsave("strong_boxplots.pdf",height=8,width=4)
 #Figure S2G - Metaplot Stats
 ```{r Figure_S2G}
 
-ks_chip_test<-function(cls="strong",cat1="UP",cat2="NR",signal="BCOR_wide") {
-#x1<-mcols(tss_classified) %>% as.data.frame() %>% 
-#  dplyr::filter(class==cls) %>% 
-#  dplyr::filter(deg_bcor==cat1) %>% 
-#  dplyr::select(signal) %>% 
-#x2<-mcols(tss_classified) %>% as.data.frame() %>% 
-#  dplyr::filter(class==cls) %>% 
-#  dplyr::filter(deg_bcor==cat2) %>% 
-#  dplyr::select(signal) %>% 
-#  dplyr::filter((signal))
+ks_chip_test<-function(cls="strong",cat1="UP",cat2="NR",signal="BCOR_wide",control="INPUT_wide") {
 
-x1<-log2(mcols(tss_classified)[tss_classified$class==cls & tss_classified$deg_bcor==cat1,signal])
-x2<-log2(mcols(tss_classified)[tss_classified$class==cls & tss_classified$deg_bcor==cat2,signal])
+
+x1<-log2(mcols(tss_classified)[tss_classified$class==cls & tss_classified$bcor_deg==cat1,signal])
+x1c<-log2(mcols(tss_classified)[tss_classified$class==cls & tss_classified$bcor_deg==cat1,control])
+x1<-ifelse(x1-x1c> 0, x1-x1c, 0)
+
+x2<-log2(mcols(tss_classified)[tss_classified$class==cls & tss_classified$bcor_deg==cat2,signal])
+x2c<-log2(mcols(tss_classified)[tss_classified$class==cls & tss_classified$bcor_deg==cat2,control])
+x2<-ifelse(x2-x2c > 0, x2-x2c,0)
 
 x1<-x1[is.finite(x1)]
 x2<-x2[is.finite(x2)]
-     
-return(suppressWarnings(ks.test(x1,x2,exact=T)$p.value))
+val_t <- round(-1*log10(suppressWarnings(t.test(x1,x2,alternative = "two.sided",paired=F)$p.value)),3)
+val_k <- round(-1*log10(suppressWarnings(ks.test(x1,x2,exact=T)$p.value)),3)
+title<-paste0(signal,cat1,cat2,":  t.test=",val_t,", ks.test= ",val_k)
+boxplot(list(x1,x2),main=title)     
+return(val_t)
+#return(suppressWarnings(ks.test(x1,x2,exact=T)$p.value))
 
 #return(suppressWarnings(t.test(na.omit(log2(x1[,1]+1)),na.omit(log2(x2[,1]+1)))$p.value))
 }
@@ -1888,12 +1917,22 @@ ggsave(rab_deg_go,file="rab_deg_go.pdf",height=12,width=8)
 head(degs.k2bKO_up)
 load("bound_w_counts.rdata")
 
+#"Mon Oct 16 15:43:10 2017"  -- as of today the bound matrix still has the shRNA calls in the deg_bcor field.  Even though I have switched over to bcorSH_deg 
+#nomenclature to keep track of the two gene sets but for now I am going to keep the bound_w_counts data separate.  Bound also does not have the H3K36me2 input
+#data as one of the columns.  106/197/415
+
 #test boxplot
 length(kd2b_only<-bound[bound$class=="strong" & bound$deg_k2bKO=="UP" & bound$deg_bcor!="UP"])
 length(bcor_only<-bound[bound$class=="strong" & bound$deg_k2bKO!="UP" & bound$deg_bcor=="UP"])
 length(k2b_bcor<-bound[bound$class=="strong" & bound$deg_k2bKO=="UP" & bound$deg_bcor=="UP"])
 length(not_up<-bound[bound$class=="strong" & bound$deg_k2bKO!="UP" & bound$deg_bcor!="UP"])
 
+k_v_b<-
+#easy just to make a variable in tss_temp to stratify these 3 groups.
+table(tss_temp$k_vs_b<-ifelse(tss_temp$ensembl %in% kd2b_only$ensembl,"kd2b_only",
+                        ifelse(tss_temp$ensembl %in% bcor_only$ensembl,"bcor_only",
+                               ifelse(tss_temp$ensembl %in% k2b_bcor$ensembl,"k2b_bcor",
+                                      ifelse(tss_temp$ensembl %in% not_up$ensembl,"not_up",NA)))),useNA="ifany")
 
 xyz<-list(bcor_only_wt=log2(bcor_only$BCOR_WT_cpm),bcor_only_mt=log2(bcor_only$BCOR_K2BKO_cpm),
           k2b_and_bcor_wt=log2(k2b_bcor$BCOR_WT_cpm),k2b_and_bcor_mt=log2(k2b_bcor$BCOR_K2BKO_cpm),
@@ -1974,11 +2013,13 @@ mcols(bound) %>% as.data.frame() %>%
         panel.grid.minor.x = element_blank(),
         panel.grid.major.x = element_blank())
 
+
+my_comparisons <- list( c("strongPLUS","strongMINUS"), c("weakPLUS","weakMINUS"))
 #option 4
 mcols(bound) %>% as.data.frame() %>%
  # dplyr::filter(class=="strong") %>% 
   dplyr::select(kd2b_v_bcor,class,BCOR_PLUS_wide_cpm,BCOR_MINUS_wide_cpm,KDM2B_PLUS_wide_cpm,KDM2B_MINUS_wide_cpm) %>% 
-  tidyr::gather(chip,cpm,-kd2b_v_bcor,-class) %>% 
+  tidyr::gather(chip,cpm,-kd2b_v_bcor,-class) %>%
  # dplyr::mutate(class2=paste0(class,":",kd2b_v_bcor)) %>% 
   dplyr::rowwise() %>% 
   dplyr::mutate(antibody=stringr::str_split(chip,"_",simplify = T)[1]) %>% 
@@ -1989,9 +2030,12 @@ mcols(bound) %>% as.data.frame() %>%
   dplyr::mutate(chip=gsub("_wide_cpm","",chip)) %>% 
  # dplyr::mutate(chip=factor(chip,levels=c("BCOR_WT","BCOR_K2BKO","BCOR_PLUS","BCOR_MINUS","KDM2B_PLUS","KDM2B_MINUS"))) %>% 
   dplyr::filter(is.finite(cpm)) %>% 
+  dplyr::filter(antibody=="KDM2B") %>% 
   ggplot(aes(x=x,y=cpm,fill=chip)) + 
   geom_boxplot(outlier.size = 0.5) +
-  facet_grid(antibody ~ kd2b_v_bcor) +
+  facet_wrap(~ kd2b_v_bcor,ncol=4) +
+ # facet_grid(antibody ~ kd2b_v_bcor) +
+  stat_compare_means(paired = T,method="t.test",comparisons = my_comparisons) +
  # facet_wrap(c("kd2b_v_bcor", "class"), labeller = "label_both",nrow=1) +
   xlab("") + ylab(" Log2 (cpm)") + scale_fill_manual(values=rep(c("purple","gray"),2)) +
   theme_bw() + theme(axis.text.x = element_text(angle = 90, hjust = 1),
@@ -2031,6 +2075,39 @@ temp<-twister(gr_k2b_v_bcor,dataset=k2b_v_bcor_fileset,pad=9000,window=25)
 temp + theme(strip.background = element_blank())
 ```
 
+ Option 5 - Megaboxplot for kdm2b_V_bcor
+```{r}
+x<-colnames(mcols(tss_classified)) %>% grep("_wide",.,value=T)
+x<-as.matrix(mcols(tss_classified)[tss_classified$class=="strong",c(x)])
+x<-as.data.frame(log2(x+1))
+
+all.equal(rownames(tss_temp[tss_temp$class=="strong"]),rownames(tss_classified[tss_classified$class=="strong"]))
+x$k_v_b<-tss_temp$k_vs_b[tss_temp$class=="strong"]
+
+x2<-cbind(x[,c(4:8,10)]-x[,2],x[,11,drop=F]-x[,3,drop=F],x[,c(12:19)]-x[,2],x[,"k_v_b",drop=F])
+
+table(x2$k_v_b,useNA="ifany")
+
+min.mean.sd.max <- function(x) {
+  r <- c(min(x), mean(x) - sd(x), mean(x), mean(x) + sd(x), max(x))
+  names(r) <- c("ymin", "lower", "middle", "upper", "ymax")
+  r
+}
+
+my_comparisons <- list( c("bcor_only","k2b_bcor"), c("bcor_only","kd2b_only"), c("k2b_bcor","kd2b_only"))
+x2 %>% as.data.frame %>%  tidyr::gather(chip,enrichment,-k_v_b) %>% 
+  dplyr::filter(k_v_b!="not_up") %>% 
+  dplyr::mutate(k_v_b=factor(k_v_b,levels=c("bcor_only","k2b_bcor","kd2b_only"))) %>% 
+  dplyr::mutate(chip=gsub("_wide","",chip)) %>% 
+  dplyr::mutate(chip=factor(chip,levels=gsub("_wide","",colnames(x2)))) %>% 
+  ggplot(aes(x=k_v_b,y=enrichment,fill=k_v_b)) +stat_summary(fun.data = min.mean.sd.max, geom = "boxplot") +
+    scale_fill_manual(values=c("#2A6042","gray","#2E4099")) + facet_wrap(~chip,scales="free",ncol=5) +
+    stat_compare_means(paired = F,method="t.test",comparisons = my_comparisons) +
+    theme_bw() +theme(strip.background = element_blank())
+
+ggsave(file="Figure_S4H_boxplot_based_onshRNA.pdf",height=8.5,width=11)
+
+```
  
 ```{r}
 
@@ -2072,7 +2149,7 @@ colnames(res_tcbcor6)<-paste(colnames(res_tcbcor6),".bcor6")
 
 length(bcor_genes<-rownames(subset(as.data.frame(res_tcbcor6), padj..bcor6 < 0.05 )))  # all genes that change over time
 length(rab_genes<-rownames(subset(as.data.frame(res_tcrab6), padj..rab6 < 0.05 )))  # all genes that change over time
-length(kdm2b_genes<-tss_classified$ensembl[tss_classified$deg_k2bKO!="NR" ])  #kdm2b degs
+length(kdm2b_genes<-tss_classified$ensembl[tss_classified$k2bKO_deg!="NR" ])  #kdm2b degs
 
 #skip this section because we need to assign all genes
 #length(bcor_genes<-bcor_genes[bcor_genes %in% tss_classified$ensembl[tss_classified$class!="nobinding"]])
@@ -2080,23 +2157,27 @@ length(kdm2b_genes<-tss_classified$ensembl[tss_classified$deg_k2bKO!="NR" ])  #k
 #length(kdm2b_genes<-kdm2b_genes[kdm2b_genes %in% tss_classified$ensembl[tss_classified$class!="nobinding"]])
 
 #length(unique(c(bcor_genes,rab_genes,kdm2b_genes)))
-#dim(f_diff<-f[unique(c(bcor_genes,rab_genes,kdm2b_genes)),c(1:7,16:22,25,14,15)])
-dim(f_diff<-f[,c(1:7,16:22,25,14,15)])
-table(apply(f_diff,1,function(x) sum(x > 2.5)))
-dim(f_diff<-f_diff[apply(f_diff,1,function(x) sum(x > 2.5)) > 0,])
+dim(f_diff<-f[unique(c(bcor_genes,rab_genes,kdm2b_genes)),c(1:7,16:22,25,14,15)])
+#dim(f_diff<-f[,c(1:7,16:22,25,14,15)])
+#table(apply(f_diff,1,function(x) sum(x > 2.5)))
+#dim(f_diff<-f_diff[apply(f_diff,1,function(x) sum(x > 2.5)) > 0,])
 f_diff<-as.data.frame(f_diff)
 #get fold change over t=0
-temp<-log2(f_diff+0.1)
+temp<-log2(f_diff+0.01)
 temp<-cbind(temp[,2:7]-temp[,1],temp[,9:14]-temp[,8],temp[,16:17]-temp[,15])
 
-table(f_diff$bcor_deg<-ifelse(temp$bcor_1 > 1 | temp$bcor_2 > 1 | temp$bcor_3 > 1 | temp$bcor_4 > 1 | temp$bcor_5 > 1 | temp$bcor_6 > 1,"UP",
-                             ifelse(temp$bcor_1 < -1 | temp$bcor_2 < -1 | temp$bcor_3 < -1 | temp$bcor_4 < -1 | temp$bcor_5 < -1 | temp$bcor_6 < -1 , "DN","NR")))
+table(f_diff$bcor_deg<-ifelse((temp$bcor_1 > 1 | temp$bcor_2 > 1 | temp$bcor_3 > 1 | temp$bcor_4 > 1 | temp$bcor_5 > 1 | temp$bcor_6 > 1) & 
+                                (f_diff$bcor_0 > 2.5 | f_diff$bcor_1 > 2.5 | f_diff$bcor_2 > 2.5 | f_diff$bcor_3 > 2.5 | f_diff$bcor_4 > 2.5 | f_diff$bcor_5 > 2.5 | f_diff$bcor_6 > 2.5),"UP",
+                             ifelse((temp$bcor_1 < -1 | temp$bcor_2 < -1 | temp$bcor_3 < -1 | temp$bcor_4 < -1 | temp$bcor_5 < -1 | temp$bcor_6 < -1) &
+                                      (f_diff$bcor_0 > 2.5 | f_diff$bcor_1 > 2.5 | f_diff$bcor_2 > 2.5 | f_diff$bcor_3 > 2.5 | f_diff$bcor_4 > 2.5 | f_diff$bcor_5 > 2.5 | f_diff$bcor_6 > 2.5), "DN","NR")))
 
-table(f_diff$rab_deg<-ifelse(temp$r1b_1 > 1 | temp$r1b_2 > 1 | temp$r1b_3 > 1 | temp$r1b_4 > 1 | temp$r1b_5 > 1 | temp$r1b_6 > 1,"UP",
-                             ifelse(temp$r1b_1 < -1 | temp$r1b_2 < -1 | temp$r1b_3 < -1 | temp$r1b_4 < -1 | temp$r1b_5 < -1 | temp$r1b_6 < -1, "DN","NR")))
+table(f_diff$rab_deg<-ifelse((temp$r1b_1 > 1 | temp$r1b_2 > 1 | temp$r1b_3 > 1 | temp$r1b_4 > 1 | temp$r1b_5 > 1 | temp$r1b_6 > 1) & 
+                                (f_diff$r1b_0 > 2.5 | f_diff$r1b_1 > 2.5 | f_diff$r1b_2 > 2.5 | f_diff$r1b_3 > 2.5 | f_diff$r1b_4 > 2.5 | f_diff$r1b_5 > 2.5 | f_diff$r1b_6 > 2.5),"UP",
+                             ifelse((temp$r1b_1 < -1 | temp$r1b_2 < -1 | temp$r1b_3 < -1 | temp$r1b_4 < -1 | temp$r1b_5 < -1 | temp$r1b_6 < -1) &
+                                      (f_diff$r1b_0 > 2.5 | f_diff$r1b_1 > 2.5 | f_diff$r1b_2 > 2.5 | f_diff$r1b_3 > 2.5 | f_diff$r1b_4 > 2.5 | f_diff$r1b_5 > 2.5 | f_diff$r1b_6 > 2.5), "DN","NR")))
 
-table(f_diff$k2b_deg<-ifelse(temp$kdm2b1 > 1 | temp$kdm2b2 > 1,"UP",
-                             ifelse(temp$kdm2b1 < -1 | temp$kdm2b2 < -1, "DN","NR")))
+table(f_diff$k2b_deg<-ifelse((temp$kdm2b1 > 1 | temp$kdm2b2 > 1) & (f_diff$wt > 2.5 | f_diff$kdm2b1 > 2.5 | f_diff$kdm2b2 > 2.5),"UP",
+                             ifelse((temp$kdm2b1 < -1 | temp$kdm2b2 < -1) & (f_diff$wt > 2.5 | f_diff$kdm2b1 > 2.5 | f_diff$kdm2b2 > 2.5), "DN","NR")))
 
 f_total<-as.data.frame(f)
 summary(idx<-match(rownames(f_total),rownames(f_diff)))
@@ -2124,6 +2205,7 @@ length(kdm2b_genes<-rownames(subset(f_strong,kdm2b_deg=="UP")))
 #length(rab_genes<-rab_genes[rab_genes %in% rownames(temp[temp$r1b_1 > 1 | temp$r1b_2 > 1 | temp$r1b_3 > 1 | temp$r1b_4 > 1 | temp$r1b_5 > 1 | temp$r1b_6 > 1,])])
 #length(kdm2b_genes<-kdm2b_genes[kdm2b_genes %in% rownames(temp[temp$kdm2b1 > 1 | temp$kdm2b2 > 1,])])
 #sanity check
+colors<-rev(colorRampPalette(brewer.pal(11,"RdBu"))(10))
 pheatmap(temp[rownames(temp) %in% bcor_genes,],cluster_cols=F,show_rownames = F,scale="none",col=colors)
 pheatmap(temp[rownames(temp) %in% rab_genes,],cluster_cols=F,show_rownames = F,scale="none",col=colors)
 pheatmap(temp[rownames(temp) %in% kdm2b_genes,],cluster_cols=F,show_rownames = F,scale="none",col=colors)
@@ -2226,30 +2308,390 @@ pheatmap(fpkm_df[idx2,],cluster_cols=F,show_rownames = F,scale="row",col=colors)
 
 #define new up ranges for bcor_only, kdm2b only, and both
 ```{r}
-length(bs<-tss_classified[(tss_classified$ensembl %in% bcor_genes ) & 
-                   !(tss_classified$ensembl %in% kdm2b_genes) &
-                   tss_classified$class=="strong"])
-length(ks<-tss_classified[!(tss_classified$ensembl %in% bcor_genes ) & 
-                   (tss_classified$ensembl %in% kdm2b_genes) &
-                   tss_classified$class=="strong"])
-length(bks<-tss_classified[(tss_classified$ensembl %in% bcor_genes ) & 
-                   (tss_classified$ensembl %in% kdm2b_genes) &
-                   tss_classified$class=="strong"])
+length(bups<-subset(tss_classified,bcor_deg=="UP" & class=="strong"))
+length(bnrs<-subset(tss_classified,bcor_deg=="NR" & class=="strong"))
+length(bdns<-subset(tss_classified,bcor_deg=="DN" & class=="strong"))
 
-length(bw<-tss_classified[(tss_classified$ensembl %in% bcor_genes ) & 
-                   !(tss_classified$ensembl %in% kdm2b_genes) &
-                   tss_classified$class=="weak"])
-length(kw<-tss_classified[!(tss_classified$ensembl %in% bcor_genes ) & 
-                   (tss_classified$ensembl %in% kdm2b_genes) &
-                   tss_classified$class=="weak"])
-length(bkw<-tss_classified[(tss_classified$ensembl %in% bcor_genes ) & 
-                   (tss_classified$ensembl %in% kdm2b_genes) &
-                   tss_classified$class=="weak"])
+length(bupw<-subset(tss_classified,bcor_deg=="UP" & class=="weak"))
+length(bnrw<-subset(tss_classified,bcor_deg=="NR" & class=="weak"))
+length(bdnw<-subset(tss_classified,bcor_deg=="DN" & class=="weak"))
+
+bcor_granges<-GRangesList(list(bups,bnrs,bdns,bupw,bnrw,bdnw))
+names(bcor_granges)<-c("bups","bnrs","bdns","bupw","bnrw","bdnw")
+lapply(bcor_granges,length)
+
+length(bs<-subset(tss_classified,bcor_deg=="UP" & kdm2b_deg!="UP" & class=="strong"))
+length(ks<-subset(tss_classified,bcor_deg!="UP" & kdm2b_deg=="UP" & class=="strong"))
+length(bks<-subset(tss_classified,bcor_deg=="UP" & kdm2b_deg=="UP" & class=="strong"))
+
+length(bw<-subset(tss_classified,bcor_deg=="UP" & kdm2b_deg!="UP" & class=="weak"))
+length(kw<-subset(tss_classified,bcor_deg!="UP" & kdm2b_deg=="UP" & class=="weak"))
+length(bkw<-subset(tss_classified,bcor_deg=="UP" & kdm2b_deg=="UP" & class=="weak"))
+
 
 bcor_v_kdm2b_granges<-GRangesList(list(bs,bks,ks,bw,bkw,kw))
 names(bcor_v_kdm2b_granges)<-c("bs","bks","ks","bw","bkw","kw")
 lapply(bcor_v_kdm2b_granges,length)
 
-save("bcor_v_kdm2b_granges",file="bcor_v_kdm2b_granges.rdata")
+save(bcor_v_kdm2b_granges,bcor_granges,file="meta_granges.rdata")
+
+```
+
+#test top genes
+```{r}
+subset_tss <-function (n=50) {
+
+bups_temp<-bups
+bups_temp$lfc<-log2(bups_temp$bcor_6_fpkm+1)-log2(bups_temp$bcor_0_fpkm+1)
+bups_temp<-bups_temp[with(bups_temp,order(-lfc))]
+bups_temp<-bups_temp[1:n]
+
+bdns_temp<-bdns
+bdns_temp$lfc<-log2(bdns_temp$bcor_6_fpkm+1)-log2(bdns_temp$bcor_0_fpkm+1)
+bdns_temp<-bdns_temp[with(bdns_temp,order(lfc))]
+head(bdns_temp$lfc)
+bdns_temp<-bdns_temp[1:n]
+
+bnrs_temp<-sample(bnrs,n)
+#bnrs_temp<-bnrs
+bnrs_temp$lfc<-log2(bnrs_temp$bcor_3_fpkm+1)-log2(bnrs_temp$bcor_0_fpkm+1)
+
+gr<-GRangesList(list(bups_temp,bnrs_temp,bdns_temp))
+names(gr)<-c(paste0("up_top",n),paste0("nr_top",n),paste0("dn_top",n))
+return(gr)
+}
+
+b_top_50<-subset_tss(50)
+b_top_100<-subset_tss(100)
+lapply(b_top_100,length)
+
+lfc_list<-list(up_full=bcor_full[["up"]]$lfc,nr_full=bcor_full[["nr"]]$lfc,dn_full=bcor_full[["dn"]]$lfc,
+               up_100=b_top_100[["up_top100"]]$lfc,nr_100=b_top_100[["nr_top100"]]$lfc,dn_100=b_top_100[["dn_top100"]]$lfc,
+               up_50=b_top_50[["up_top50"]]$lfc,nr_50=b_top_50[["nr_top50"]]$lfc,dn_50=b_top_50[["dn_top50"]]$lfc)
+
+b_mix<-GRangesList(list(b_top_50[["up_top50"]],b_top_100[["up_top100"]],bcor_full[["nr"]],b_top_100[["dn_top100"]],b_top_50[["dn_top50"]]))
+names(b_mix)<-c("up_top50","up_top100","nr","dn_top100","dn_top50")
+lapply(b_mix,length)
+save(b_mix,file="b_mix.rdata")
+boxplot(lfc_list)
+save(b_top_50,b_top_100,file="b_top_50_day3.rdata")
+
+nr_mix<-GRangesList(list(b_top_50[["nr_top50"]],b_top_100[["nr_top100"]],bcor_full[["nr"]]))
+names(nr_mix)<-c("nr_top50","nr_top100","nr")
+lapply(nr_mix,length)
+save(nr_mix,file="nr_mix.rdata")
+
+
+```
+
+```{r}
+x<-
+data.frame(chip=colnames(mcols(tss_classified)) %>% grep("_wide",.,value=T))
+
+myttest<-function(chip) {
+  a=log2(mcols(bups)[,chip])
+  a<-a[is.finite(a)]
+  b=log2(mcols(bnrs)[,chip])
+  b<-b[is.finite(b)]
+  -1*log10(t.test(a,b,alternative = "two.sided",paired=F)$p.value)
+}
+
+x$pval<-1
+for ( i in 1:19) { x[i,"pval"]<- myttest(x[i,"chip"])}
+```
+
+megaboxplot
+```{r}
+x<-colnames(mcols(tss_classified)) %>% grep("_wide",.,value=T)
+x<-as.matrix(mcols(tss_classified)[tss_classified$class=="strong",c(x)])
+x<-as.data.frame(log2(x+1))
+x$bcor_deg<-tss_classified$bcorSH_deg[tss_classified$class=="strong"]
+x2<-cbind(x[,c(4:8,10)]-x[,2],x[,11,drop=F]-x[,3,drop=F],x[,c(12:19)]-x[,2],x[,"bcor_deg",drop=F])
+
+
+min.mean.sd.max <- function(x) {
+  r <- c(min(x), mean(x) - sd(x), mean(x), mean(x) + sd(x), max(x))
+  names(r) <- c("ymin", "lower", "middle", "upper", "ymax")
+  r
+}
+
+my_comparisons <- list( c("UP","NR"), c("NR","DN"), c("UP","DN"))
+temp2_plot<-x2 %>% as.data.frame %>%  tidyr::gather(chip,enrichment,-bcor_deg) %>% 
+  dplyr::filter(bcor_deg!="XX") %>% 
+  dplyr::mutate(bcor_deg=factor(bcor_deg,levels=c("UP","NR","DN"))) %>% 
+  dplyr::mutate(chip=gsub("_wide","",chip)) %>% 
+  dplyr::mutate(chip=factor(chip,levels=gsub("_wide","",colnames(x2)))) %>% 
+  ggplot(aes(x=bcor_deg,y=enrichment,fill=bcor_deg)) +stat_summary(fun.data = min.mean.sd.max, geom = "boxplot") +
+    scale_fill_manual(values=c("#EF3A38","#BFBFBF","#A2AED9","cyan"),name="") +
+    stat_compare_means(paired = F,method="t.test",comparisons = my_comparisons) +
+    facet_wrap(~chip,scales="free",ncol=5) +theme_bw() +theme(strip.background = element_blank())
+
+ggsave(temp2_plot,file="Figure_S2H_boxplot_based_onshRNA.pdf",height=8.5,width=11)
+
+```
+
+
+#Figure S2G - Metaplot Stats
+```{r Figure_S2G}
+
+
+
+tss_temp<-tss_classified
+
+
+chip_t_test<-function(cls="strong",cat1="UP",cat2="NR",signal="BCOR_wide",control="INPUT_wide") {
+
+x1 <-log2(mcols(tss_temp)[tss_temp$class==cls & tss_temp$bcorSH_deg==cat1,signal]+1)
+x1c<-log2(mcols(tss_temp)[tss_temp$class==cls & tss_temp$bcorSH_deg==cat1,control]+1)
+#x1<-ifelse(x1-x1c> 0, x1-x1c, NA)
+x1<-x1-x1c
+
+x2<-log2(mcols(tss_temp)[tss_temp$class==cls & tss_temp$bcorSH_deg==cat2,signal]+1)
+x2c<-log2(mcols(tss_temp)[tss_temp$class==cls & tss_temp$bcorSH_deg==cat2,control]+1)
+#x2<-ifelse(x2-x2c > 0, x2-x2c,NA)
+x2<-x2-x2c
+
+#x1<-x1[is.finite(x1)]
+#x2<-x2[is.finite(x2)]
+val_t <- suppressWarnings(t.test(x1,x2,alternative = "two.sided",paired=F)$p.value)
+#val_t <- round(-1*log10(suppressWarnings(t.test(x1,x2,alternative = "two.sided",paired=F)$p.value)),3)
+#val_k <- round(-1*log10(suppressWarnings(ks.test(x1,x2,exact=T)$p.value)),3)
+#title<-paste0(signal,cat1,cat2,":  t.test=",val_t,", ks.test= ",val_k)
+#boxplot(list(x1,x2),main=title)     
+return(val_t)
+
+#return(suppressWarnings(t.test(na.omit(log2(x1[,1]+1)),na.omit(log2(x2[,1]+1)))$p.value))
+}
+
+chip_t_test(cls="strong",cat1="UP",cat2="NR",signal="RNF2_wide")
+
+options("scipen"=-100, "digits"=4)
+x<-colnames(mcols(tss_temp)) %>% grep("_wide",.,value=T) %>% grep("INPUT",.,value=T,invert=T) %>% grep("CGI",.,value=T,invert=T)
+#x<-c("BCOR_wide","KDM2B_wide","RNF2_wide","PCGF1_wide","RYBP_wide","H2AUb_wide","SUZ12_wide","H3K27me3_wide","CBX2_wide","DNAse1_wide")
+
+  
+df<-matrix(nrow=length(x),ncol=3)
+colnames(df)<-c("UP vs DN","UP vs NR","DN vs NR")
+#rownames(df)<-colnames(mcols(tss_temp))[5:22]
+rownames(df)<-x
+
+for (j in rownames(df)) {
+  for (i in colnames(df)) {
+  c1=substr(i,1,2)
+  c2=substr(i,7,8)
+  #print(paste0("c1:  ",c1," c2:  ",c2," ks.test:"))
+  #print(paste0("c1:  ",c1," c2:  ",c2," ks.test:",ks_chip_test(cat1=c1,cat2=c2)))
+  df[j,i]<-ifelse(j=="H3K36me2_wide",chip_t_test(cat1=c1,cat2=c2,signal=j,cls="strong",control="INPUT_H3K36me2_wide"),chip_t_test(cat1=c1,cat2=c2,signal=j,cls="strong",control="INPUT_wide"))
+  #df[j,i]<-chip_t_test(cat1=c1,cat2=c2,signal=j,cls="strong")
+}
+}
+
+
+
+#options("scipen"=-20, "digits"=4)
+options("scipen"=999, "digits"=12)
+round(df,12)
+write.csv(round(df,12),file="strong_S2G.csv",quote=F)
+#pheatmap(df,cluster_rows = F,cluster_cols = F,main="Strong Wide KS test")
+
+
+strong_wide_ks<-df
+colnames(strong_wide_ks)<-paste0(colnames(strong_wide_ks)," : strong")
+
+# now do weak
+options("scipen"=-100, "digits"=4)
+
+chip_t_test(cls="weak",cat1="UP",cat2="NR",signal="RNF2_wide")
+df<-matrix(nrow=length(x),ncol=3)
+colnames(df)<-c("UP vs DN","UP vs NR","DN vs NR")
+#rownames(df)<-colnames(mcols(tss_temp))[5:22]
+rownames(df)<-x
+
+for (j in rownames(df)) {
+  for (i in colnames(df)) {
+  c1=substr(i,1,2)
+  c2=substr(i,7,8)
+  #print(paste0("c1:  ",c1," c2:  ",c2," ks.test:"))
+  #print(paste0("c1:  ",c1," c2:  ",c2," ks.test:",ks_chip_test(cat1=c1,cat2=c2)))
+  df[j,i]<-ifelse(j=="H3K36me2_wide",chip_t_test(cat1=c1,cat2=c2,signal=j,cls="weak",control="INPUT_H3K36me2_wide"),chip_t_test(cat1=c1,cat2=c2,signal=j,cls="weak",control="INPUT_wide"))
+}
+}
+
+options("scipen"=999, "digits"=12)
+round(df,12)
+write.csv(round(df,12),file="weak_S2G.csv",quote=F)
+
+#pheatmap(df,cluster_rows = F,cluster_cols = F,main="Weak Wide KS test")
+weak_wide_ks<-df
+colnames(weak_wide_ks)<-paste0(colnames(weak_wide_ks)," : weak")
+
+wide_ks<-cbind(strong_wide_ks,weak_wide_ks)
+#pheatmap(wide_ks,cluster_rows = F,cluster_cols = F,main="Wide KS test")
+
+#pheatmap(narrow_ks,cluster_rows = F,cluster_cols = F,main="Narrow KS test")
+#pheatmap(narrow_t,cluster_rows = F,cluster_cols = F,main="Narrow t-test")
+#pheatmap(wide_ks,cluster_rows = F,cluster_cols = F,main="Wide KS test")
+#pheatmap(wide_t,cluster_rows = F,cluster_cols = F,main="Wide t-test")
+
+colors <- colorRampPalette(c("white","#fe3233"))(3)
+colors <- colorRampPalette("RdBl")(3)
+colors<-  colorRampPalette(c("white","red"))(3)
+#plot(rep(1,3),cex=2,pch=16,col=colors)
+
+temp_plot<-wide_ks[,1:3] %>% as.data.frame %>% 
+  tibble::rownames_to_column(var="chip") %>% 
+  dplyr::mutate(chip=gsub("_wide","",chip)) %>% 
+  tidyr::gather(cat,pval,-chip) %>%
+  dplyr::mutate(chip=factor(chip,levels=rev(gsub("_wide","",x)))) %>% 
+  dplyr::mutate(cat=factor(cat,levels=c("UP vs NR : strong","UP vs DN : strong","DN vs NR : strong","UP vs NR : weak","UP vs DN : weak","DN vs NR : weak"))) %>% 
+  ggplot(aes(x=cat,y=chip)) + geom_tile(aes(fill=pval))+
+  scale_fill_gradient2(low=colors[1],mid=colors[2], high=colors[3],midpoint = 10,  name = "-Log10(p-value)")+
+  xlab("")+ylab("")+
+    geom_text(aes(x=cat,y=chip,label=pval),size=2) +
+        theme_bw() + theme(strip.background = element_blank(),
+                           axis.text.x = element_text(angle = 90, hjust = 1),
+                                          axis.ticks.y=element_blank(),
+                                          panel.grid.major=element_blank(),
+                                          panel.grid.minor=element_blank())
+
+ggsave(temp_plot,file="Figure_S2H_based_onShRHA.pdf",height=5,width=6)
+
+```
+
+  #dplyr::filter(pval > 0) %>% 
+ # dplyr::mutate(pval=round(-1*log10(pval),3)) %>% 
+ # dplyr::mutate(pval=replace(pval,is.infinite(pval),NA))
+
+  temp_plot<-
+
+
+check natalia's t.tests
+```{r}
+nat<-read.csv("../hESC/H1/chip_enrichment_and_fpkm_data_090517.csv",stringsAsFactors=F)
+table(nat)
+```
+
+```{r}
+x<-colnames(mcols(tss_temp)) %>% grep("_fpkm",.,value=T) %>% grep("ave",.,value=T,invert=F) 
+x<-tss_temp[,c(x[c(1,2)],"class")]
+
+head(x)
+x %>%  mcols %>%  as.data.frame() %>% 
+  tidyr::gather(time,fpkm,-class) %>% 
+  #tidyr::gather(time,fpkm,-class,-bcor_0_fpkm) %>% 
+ # dplyr::rowwise() %>% 
+  #dplyr::mutate(time=factor(stringr::str_split(time,"_",simplify = T)[1])) %>% 
+  #dplyr::mutate(time=sapply(strsplit(time,"_"),function(x) x[1])) %>% 
+  #dplyr::ungroup() %>% 
+  #dplyr::mutate(time=factor(time,levels=c("H1P","BCOR"))) %>% 
+  dplyr::mutate(time=factor(gsub("_","",substr(time,1,4)),levels=c("H1P","BCOR"))) %>% 
+  #dplyr::mutate(time=gsub("_","",substr(time,1,4))) %>% 
+  #dplyr::mutate(log2FPKM=log2(fpkm+0.1)-log2(bcor_0_fpkm+0.1)) %>% 
+  dplyr::mutate(log2FPKM=log2(fpkm+0.1)) %>% 
+  dplyr::mutate(class=factor(class,levels=c("strong","weak","nobinding"))) %>% 
+  ggplot(aes(x=time,y=log2FPKM)) + geom_boxplot(size=0.2) + facet_wrap(~class) +
+  scale_fill_manual(values=c("#A2AED9","#EF3A38")) +
+   stat_compare_means(label = "p.format",paired = T,method="wilcox.test") +
+  theme_bw() + theme(strip.background = element_blank(),
+                     axis.text.x = element_text(angle = 90, hjust = 1),
+                     axis.ticks.y=element_blank(),
+                     panel.grid.major=element_blank(),
+                     panel.grid.minor=element_blank())
+
+
+ggsave("Figure2F.pdf",width=6,height=4)
+
+x2<-x %>%  mcols %>%  as.data.frame() %>% 
+  tidyr::gather(time,fpkm,-class) %>% 
+  #dplyr::mutate(time=factor(substr(time,6,6))) %>% 
+  dplyr::mutate(time=factor(gsub("_","",substr(time,1,4)),levels=c("H1P","BCOR"))) %>% 
+  dplyr::mutate(log2FPKM=log2(fpkm+0.1)) %>% 
+  dplyr::mutate(class=factor(class,levels=c("strong","weak","nobinding"))) 
+
+length(a<-x2[x2$class=="nobinding" & x2$time=="H1P","log2FPKM"])
+length(b<-x2[x2$class=="nobinding" & x2$time=="BCOR","log2FPKM"])
+wilcox.test(a,b,paired=T)$p.value
+ks.test(a,b)$p.value
+
+boxplot(list(a=a,b=b))
+t.test(a,b)$p.value
+```
+
+#Supplemental Figure 4x
+```{r}
+fig4_chip_t_test<-function(cls="strong",cat1="bcor_only",cat2="kd2b_only",signal="BCOR_wide",control="INPUT_wide") {
+
+x1 <-log2(mcols(tss_temp)[tss_temp$class==cls & tss_temp$k_vs_b==cat1,signal]+1)
+x1c<-log2(mcols(tss_temp)[tss_temp$class==cls & tss_temp$k_vs_b==cat1,control]+1)
+#x1<-ifelse(x1-x1c> 0, x1-x1c, NA)
+x1<-x1-x1c
+
+x2<-log2(mcols(tss_temp)[tss_temp$class==cls & tss_temp$k_vs_b==cat2,signal]+1)
+x2c<-log2(mcols(tss_temp)[tss_temp$class==cls & tss_temp$k_vs_b==cat2,control]+1)
+#x2<-ifelse(x2-x2c > 0, x2-x2c,NA)
+x2<-x2-x2c
+
+#x1<-x1[is.finite(x1)]
+#x2<-x2[is.finite(x2)]
+val_t <- suppressWarnings(t.test(x1,x2,alternative = "two.sided",paired=F)$p.value)
+#val_t <- round(-1*log10(suppressWarnings(t.test(x1,x2,alternative = "two.sided",paired=F)$p.value)),3)
+#val_k <- round(-1*log10(suppressWarnings(ks.test(x1,x2,exact=T)$p.value)),3)
+#title<-paste0(signal,cat1,cat2,":  t.test=",val_t,", ks.test= ",val_k)
+#boxplot(list(x1,x2),main=title)     
+return(val_t)
+
+#return(suppressWarnings(t.test(na.omit(log2(x1[,1]+1)),na.omit(log2(x2[,1]+1)))$p.value))
+}
+
+my_comparisons <- list( c("bcor_only","k2b_bcor"), c("bcor_only","kd2b_only"), c("k2b_bcor","kd2b_only"))
+x<-colnames(mcols(tss_temp)) %>% grep("_wide",.,value=T) %>% grep("INPUT",.,value=T,invert=T) %>% grep("CGI",.,value=T,invert=T)
+
+options("scipen"=-100, "digits"=4)
+df<-matrix(nrow=length(x),ncol=3)
+colnames(df)<-sapply(my_comparisons,function(x) paste0(x[1],":",x[2]))
+#rownames(df)<-colnames(mcols(tss_temp))[5:22]
+rownames(df)<-x
+
+for (j in rownames(df)) {
+  for (i in colnames(df)) {
+  c1=sapply(strsplit(i,":"), function(x) x[1])
+  c2=sapply(strsplit(i,":"), function(x) x[2])
+  #print(paste0("c1:  ",c1," c2:  ",c2," ks.test:"))
+  #print(paste0("c1:  ",c1," c2:  ",c2," ks.test:",ks_chip_test(cat1=c1,cat2=c2)))
+  df[j,i]<-ifelse(j=="H3K36me2_wide",fig4_chip_t_test(cat1=c1,cat2=c2,signal=j,cls="strong",control="INPUT_H3K36me2_wide"),fig4_chip_t_test(cat1=c1,cat2=c2,signal=j,cls="strong",control="INPUT_wide"))
+}
+}
+
+options("scipen"=999, "digits"=12)
+round(df,12)
+write.csv(round(df,12),file="strong_S4.csv",quote=F)
+```
+
+```{r}
+bam2bw<-function(bam_file) { 
+qfilter=4
+param <- ScanBamParam(what="mapq",flag = scanBamFlag(isUnmappedQuery = FALSE))
+size<-countBam(bam_file,param=param,)$records
+print(paste0("The file ",bam_file," has ",size," reads."))
+temp<-readGAlignments(bam_file,param=param)
+temp.cov<-coverage(temp[mcols(temp)$mapq >= qfilter],weight=1e6/size)
+print(bigwig_file<-paste0(strsplit(basename(bam_file),"\\.")[[1]][1],"_q",qfilter,"_scaled.bigWig"))
+export(temp.cov,bigwig_file)
+}
+
+bam2bw("../hESC/H1_KDM2Bplus_P038_Index5_S16.R1_trimmed.fastq.bam")
+bam2bw("../hESC/H1_KDM2Bminus_P038_Index3_S14.R1_trimmed.fastq.bam")
+
+bam2bw("../hESC/H1_BCORplus_P038_Index4_S15.R1_trimmed.fastq.bam")
+bam2bw("../hESC/H1_BCORminus_P038_Index2_S13.R1_trimmed.fastq.bam")
+
+temp_k_plus<-readGAlignments("../hESC/H1_KDM2Bplus_P038_Index5_S16.R1_trimmed.fastq.bam",param=param)
+temp_k_minus<-readGAlignments("../hESC/H1_KDM2Bminus_P038_Index3_S14.R1_trimmed.fastq.bam",param=param)
+
+table(mcols(temp_k_plus)$mapq)/length(temp_k_plus)
+table(mcols(temp_k_minus)$mapq)/length(temp_k_minus)
+rm(temp)
+rm(temp_k_plus)
+rm(temp_k_minus)
 ```
 
